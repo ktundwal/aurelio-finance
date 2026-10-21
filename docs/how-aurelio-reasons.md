@@ -9,7 +9,8 @@ number.
 
 A complete and useful picture of one person's finances (wealth, cash flows,
 goals and the context of their life), rich enough for a language model to
-reason about. Everything stays local, for one user.
+reason about. Records stay local, for one user; optional AI requests send context as
+described in [What leaves the computer](../wiki/github-copilot-models.md#what-leaves-the-computer).
 
 ## The core idea: an anchor, plus the events after it
 
@@ -63,10 +64,9 @@ real_assets                     liabilities
            each carries why, what it rested on, and what it did not know.
 ```
 
-Caches and supporting registers: `price_cache`, `fx_rates`, `composition_cache`,
-`instruments` (the local UCITS fund catalogue, with a full-text index) and
-`settings`. The chat keeps its conversations in `chat_conversations` and
-`chat_messages`.
+Caches, supporting registers and chat-history tables are defined alongside the
+records in [`backend/app/models.py`](../backend/app/models.py). The local UCITS
+fund catalogue has a full-text index.
 
 ## The distinctions the code defends
 
@@ -144,9 +144,10 @@ the one before: a recurring order cannot execute before the day it exists.
 Three is a policy, not a measurement; `prices._close_on` says between what and
 what it sits.
 
-**Currency is designed; locale happened.** Everything is converted into one
-base currency (yours to choose, the euro by default) before it is shown; how
-that number is punctuated depends on who reads it. The converter is the only
+**Currency is designed; locale happened.** Totals go through one converter;
+[One currency](../wiki/how-to-calculate-net-worth.md#one-currency) explains the
+rates and missing-rate notices. How a number is punctuated depends on who
+reads it. The converter is the only
 place that can add two currencies: a property of a database model has no
 session, so it **cannot do arithmetic on amounts**. It may return a count, a
 date or a stored value, and nothing else. The rule is written in `models.py`,
@@ -165,16 +166,16 @@ you and not one figure, a revision when the challenge is contested, and a
 synthesis. The analyst and its revision can look things up before they answer:
 every axis of the look-through, what the fund catalogue holds on a held fund's
 index and at which costs, what an instrument is and its latest close, what a
-purchase or a sale would do to your exposure, and, on Anthropic's models, the
-web. None of these reads your profile answers or your goals. Of your Profile
-the analyst reads one field, the country you pay tax in, with the rates you
-declared beside it, so that a tax is quoted rather than invented. A test plants
-markers in the rest and checks that none reaches anything the analyst reads,
-its tools' answers included, that the tax country does, and that nothing of
-your records reaches the confidant, who is offered no tool at all. A step looks
-things up in at most
-four requests and three web searches, so what a run costs moves with what it
-looks up.
+purchase or a sale would do to your exposure, and, on Claude and GPT models, the
+web. None of these reads your profile answers or your goals. Missing-rate
+notices carry only currency codes and financial shares to the analyst, not
+household row names or counts. Of your Profile the analyst reads one field,
+the country you pay tax in, with the rates you declared beside it, so that a
+tax is quoted rather than invented. The tool
+isolation contract is documented in
+[`analyst_tools.py`](../backend/app/analyst_tools.py); the confidant is offered
+no tool at all. A step looks things up in at most four requests and three web
+searches, so its subscription usage moves with what it looks up.
 
 **Stale is a fingerprint, not a clock.** Every proposal declares what it
 depends on; confirming it computes that again and refuses with a 409 if

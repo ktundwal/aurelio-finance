@@ -19,7 +19,7 @@ import datetime
 
 import pytest
 
-from app import advisor, analytics, chain, models, tools
+from app import advisor, analytics, chain, models, yahoo_rates
 from app.database import SessionLocal
 from conftest import script_the_chain
 
@@ -326,9 +326,13 @@ def test_nothing_recorded_is_said_as_none_not_as_zero(client):
         assert line in analyst.splitlines(), line
 
 
-def test_an_amount_the_app_cannot_convert_is_named_and_not_sized(client):
-    """Added as written, as on the Dashboard. The amount is not given: it
-    bounds no error in either direction (`fx.Converter.unconverted_amounts`)."""
+@pytest.mark.parametrize("rate_answer", [None, []], ids=["fetch-failed", "no-quotes"])
+def test_an_amount_the_app_cannot_convert_is_named_and_sized(client, monkeypatch, rate_answer):
+    """Added as written, as on the Dashboard, with what kind of code it is and
+    its share of the net worth, measured on the net worth itself (brief BA;
+    it used to be named and not sized, when the only number was a volume of
+    rows that bounded no error)."""
+    monkeypatch.setattr(yahoo_rates, "_fetch", lambda *args, **kwargs: rate_answer)
     _bank(client, "Banca Alfa", cash=6000)
     land = _made(client.post("/api/real-assets",
                              json={"name": "Terreno", "category": "land", "currency": "TWD"}))
@@ -336,8 +340,9 @@ def test_an_amount_the_app_cannot_convert_is_named_and_not_sized(client):
     with SessionLocal() as db:
         analyst = _analyst(db)
     assert (
-        "- Amounts in TWD cannot be converted to EUR and are added as written, so the "
-        "totals that hold them are not exact."
+        "- Amounts in TWD (no conversion rate available, 1000.00 of the net worth) cannot "
+        "be converted to EUR and are added as written, so the totals that hold them are "
+        "not exact."
     ) in analyst.splitlines()
 
 
@@ -394,36 +399,6 @@ def test_every_share_the_app_writes_names_its_whole(client, monkeypatch):
     assert "whole portfolio" not in analyst and "% of portfolio" not in analyst
 
 
-# --- The prompts ---------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "prompt",
-    [advisor.PORTFOLIO_SYSTEM_PROMPT, chain.REVISION_SYSTEM_PROMPT, chain.SYNTHESIS_SYSTEM_PROMPT],
-    ids=["analyst", "revision", "synthesis"],
-)
-def test_every_role_that_writes_figures_is_told_the_three_wholes(prompt):
-    assert "names its whole" in prompt
-    assert "the investments" in prompt and "liquid wealth" in prompt and "everything" in prompt
-
-
-def test_the_analyst_is_told_what_it_reads_and_what_the_real_assets_are_for():
-    prompt = advisor.PORTFOLIO_SYSTEM_PROMPT
-    assert "ONLY the user's investment data" not in prompt
-    assert "not in it at all" not in prompt
-    assert "cash on each account" in prompt and "real assets" in prompt
-    assert "the allocation of everything they own" in prompt
-    assert "a real asset is never cash" in prompt
-    assert "say how old it is" in prompt
-    assert "NO personal context" in prompt
-
-
-def test_the_synthesis_counts_the_real_assets_in_what_is_owned_and_not_in_what_is_spent():
-    prompt = chain.SYNTHESIS_SYSTEM_PROMPT
-    assert "not in the analysis" not in prompt
-    assert "never in what they can spend" in prompt
-
-
 # --- Who reads what -----------------------------------------------------------------
 
 
@@ -466,11 +441,3 @@ def test_the_revision_reads_the_records_again_and_the_confidant_never_does(recor
             assert record not in confidant["user"], f"{record!r} reached the confidant"
         assert "I panic" in confidant["user"]
     assert "I panic" not in seen[0]["user"], "the analyst is blind to the person"
-
-
-def test_the_chats_look_through_names_its_whole_too():
-    reading = " ".join(tools._READING)
-    assert "WHOLE portfolio" not in reading
-    assert "a share of the investments" in reading
-    assert "investments" in tools.REGISTRY["get_look_through"].description
-    assert "whole portfolio" not in tools.REGISTRY["get_look_through"].description

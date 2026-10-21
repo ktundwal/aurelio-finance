@@ -162,8 +162,8 @@ def _decided(data: BaseModel, payload: dict) -> dict:
     """The part of a built row this request is entitled to write.
 
     A schema field is written when the request sent it. A key the schema does
-    not own is one crud worked out for itself — today only `fx_as_of`, the ECB
-    day that turned quantity x price into an amount — and a builder puts one in
+    not own is one crud worked out for itself (today only `fx_as_of`: the day
+    a rate turned quantity x price into an amount), and a builder puts one in
     the payload only when this request decided the figure it explains. So its
     presence IS the decision, and it travels with that figure rather than being
     re-stated as a list of the fields it depends on, which would be the same
@@ -766,6 +766,34 @@ def get_income_source(db: Session, income_id: int) -> models.IncomeSource | None
     return db.get(models.IncomeSource, income_id)
 
 
+# --- Historical tax returns -----------------------------------------------
+
+
+def create_tax_return(db: Session, data: schemas.TaxReturnCreate) -> models.TaxReturn:
+    """Insert an annual return, or replace that jurisdiction's same-year row."""
+    existing = db.scalar(
+        select(models.TaxReturn).where(
+            models.TaxReturn.tax_year == data.tax_year,
+            models.TaxReturn.jurisdiction == data.jurisdiction,
+        )
+    )
+    columns = _columns(data)
+    if existing is not None:
+        return _apply(db, existing, columns)
+    return _create(db, models.TaxReturn(**columns))
+
+
+def get_tax_returns(db: Session) -> list[models.TaxReturn]:
+    stmt = select(models.TaxReturn).order_by(
+        models.TaxReturn.tax_year.desc(), models.TaxReturn.jurisdiction
+    )
+    return list(db.scalars(stmt))
+
+
+def get_tax_return(db: Session, tax_return_id: int) -> models.TaxReturn | None:
+    return db.get(models.TaxReturn, tax_return_id)
+
+
 # --- Expenses -------------------------------------------------------------
 
 
@@ -883,6 +911,15 @@ def update_cash_anchor(
 # --- Transfers ------------------------------------------------------------
 
 
+def _unquoted(db: Session, *codes: str | None) -> str | None:
+    """The first of `codes` no source quotes, neither the ECB nor Yahoo, as
+    Yahoo said when last asked (`yahoo_rates.no_source`): a refusal for it
+    says that no rate will come, not that it is not known yet (brief BA)."""
+    from app import yahoo_rates
+
+    return next((c for c in codes if c and yahoo_rates.no_source(db, c)), None)
+
+
 class TransferRateUnknown(ValueError):
     """What reached the destination of a transfer across two currencies cannot
     be worked out, because its day has no final rate. Refused rather than
@@ -911,11 +948,20 @@ def _transfer_columns(db: Session, row: dict, sent: Collection[str]) -> dict:
             db, row["amount"], row["currency"], row["to_currency"], row["date"]
         )
         if arrived is None:
+            # "Yet" only where a rate may still come: a code no source quotes
+            # is said as that (brief BA, measured at 279acf8: "No final
+            # exchange rate from EUR to TWD is known for 2026-10-11 yet").
+            unquoted = _unquoted(db, row["currency"], row["to_currency"])
             raise TransferRateUnknown(
-                f"No final exchange rate from {row['currency']} to {row['to_currency']} is "
-                f"known for {row['date']} yet, so what reached the destination "
-                f"cannot be worked out in {row['to_currency']}. State the amount that "
-                "arrived: the figure on the destination account's statement."
+                (
+                    f"No source quotes a rate for {unquoted}, neither the ECB nor Yahoo, "
+                    if unquoted
+                    else f"No final exchange rate from {row['currency']} to "
+                    f"{row['to_currency']} is known for {row['date']} yet, "
+                )
+                + "so what reached the destination cannot be worked out in "
+                f"{row['to_currency']}. State the amount that arrived: the figure on "
+                "the destination account's statement."
             )
         payload["to_amount"] = round(arrived, 2) if fx_day is not None else arrived
         payload["fx_as_of"] = fx_day
@@ -1014,6 +1060,10 @@ def delete_liability_balance(db: Session, balance_id: int) -> bool:
 
 def delete_income_source(db: Session, income_id: int) -> bool:
     return _delete(db, db.get(models.IncomeSource, income_id))
+
+
+def delete_tax_return(db: Session, tax_return_id: int) -> bool:
+    return _delete(db, db.get(models.TaxReturn, tax_return_id))
 
 
 def delete_expense(db: Session, expense_id: int) -> bool:
@@ -1209,11 +1259,17 @@ def _transaction_columns(db: Session, row: dict, sent: Collection[str]) -> dict:
             row["date"],
         )
         if gross is None:
+            unquoted = _unquoted(db, row["price_currency"], row["currency"])
             raise LedgerRateUnknown(
-                f"No exchange rate from {row['price_currency']} to {row['currency']} is "
-                f"known for {row['date']}, so the {row['kind']} cannot be "
-                f"worked out in {row['currency']}. State the amount from your "
-                "statement. That is the figure the account actually moved by."
+                (
+                    f"No source quotes a rate for {unquoted}, neither the ECB nor Yahoo, "
+                    if unquoted
+                    else f"No exchange rate from {row['price_currency']} to "
+                    f"{row['currency']} is known for {row['date']}, "
+                )
+                + f"so the {row['kind']} cannot be worked out in {row['currency']}. "
+                "State the amount from your statement. That is the figure the account "
+                "actually moved by."
             )
         fees = row["fees"] or 0.0
         # An account is debited and credited in cents, whichever way the gross
@@ -1309,13 +1365,20 @@ def amount_was_stated(tx: models.Transaction) -> bool:
     out, so an empty one is the reader's own. In one currency, a figure
     further from what the row derives than half a cent (the backend's
     rounding) and a hair can only have been typed. A close's proceeds are its
-    amount and are never derived."""
+    amount and are never derived.
+
+    Two currencies as `fx.same_currency` reads them, in major units, and the
+    derived figure with the minor-unit step `_transaction_columns` takes
+    (brief BA): a price in "eur" on a EUR account, or in GBp on a GBP one, is
+    one currency, worked out with no rate day."""
     if tx.kind == "close":
         return False
     price = (tx.price_currency or "").strip()
-    if price and price != tx.currency.strip():
+    if price and not fx.same_currency(price, tx.currency):
         return tx.fx_as_of is None
     gross = (tx.quantity or 0.0) * (tx.unit_price or 0.0)
+    if price:
+        gross = fx.within_currency(gross, price, tx.currency)
     fees = tx.fees or 0.0
     derived = gross + fees if tx.kind == "buy" else max(gross - fees, 0.0)
     return abs(tx.amount - derived) > 0.005 + 1e-9
@@ -2180,6 +2243,12 @@ def update_real_asset_valuation(
     db: Session, valuation_id: int, data: schemas.RealAssetValuationCreate
 ) -> models.RealAssetValuation | None:
     return _update(db, models.RealAssetValuation, valuation_id, data)
+
+
+def update_tax_return(
+    db: Session, tax_return_id: int, data: schemas.TaxReturnCreate
+) -> models.TaxReturn | None:
+    return _update(db, models.TaxReturn, tax_return_id, data)
 
 
 def update_income_source(

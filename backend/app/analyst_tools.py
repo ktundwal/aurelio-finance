@@ -12,14 +12,15 @@ reads the profile, the goals or the questionnaire:
 
 - `get_look_through`, the chat's own (`tools._look_through`): the positions
   seen through the funds, every axis, and what could not be looked inside.
+  Missing-rate notices omit household row names and counts.
 - `catalogue_same_index`: what the registry holds on a fund's index
   (`catalogue.same_index`), as counts and costs.
 - `instrument_facts`: a fund's line in the registry, or what Yahoo lists under
   a symbol and its latest close.
 - `weigh_change`: what a purchase, a sale or both would do to the look-through
   (`composition.weigh_change`).
-- `search_web`, for Anthropic's models: the web search the chat has, which the
-  step runs itself, since a search is a request of its own with a cost
+- `search_web`, for Claude and GPT models: the web search the chat has, which the
+  step runs itself as a separate subscription-backed request
   (`chain`).
 
 Not offered, on purpose: `size_purchase`, whose room reads the profile and the
@@ -352,7 +353,12 @@ class LookThroughArgs(BaseModel):
 
 
 def _look_through(db: Session, args: LookThroughArgs) -> dict:
-    return tools._look_through(db, tools.LookThroughArgs())
+    result = tools._look_through(db, tools.LookThroughArgs())
+    result["unconverted"] = [
+        {key: item[key] for key in ("currency", "not_a_code", "shares")}
+        for item in result["unconverted"]
+    ]
+    return result
 
 
 REGISTRY: dict[str, tools.Tool] = {
@@ -430,19 +436,15 @@ def _search_description(searches: int) -> str:
 
 
 def declarations(model: str, searches: int) -> list[dict]:
-    """Every tool of the analysis as the API's `tools=` wants it, the web search
-    for Anthropic's models only (as `tools.web_search` offers it to the chat),
-    told how many searches a step may run. Fixed for a model, so the tools
-    never change inside the prefix a provider caches between a step's rounds."""
-    sdk = advisor.sdk()
+    """Every read-only analyst tool, plus bounded web search when supported."""
     declared = [
-        sdk.pydantic_function_tool(t.arguments, name=t.name, description=t.description)
+        tools._declaration(t.name, t.description, t.arguments)
         for t in REGISTRY.values()
     ]
     if tools.web_search(model):
         declared.append(
-            sdk.pydantic_function_tool(
-                tools.SearchWebArgs, name=SEARCH_WEB, description=_search_description(searches)
+            tools._declaration(
+                SEARCH_WEB, _search_description(searches), tools.SearchWebArgs
             )
         )
     return declared

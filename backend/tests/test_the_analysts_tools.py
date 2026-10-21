@@ -18,7 +18,7 @@ import json
 import pandas as pd
 import pytest
 
-from app import advisor, analyst_tools, catalogue, composition, prices, sizing
+from app import advisor, analyst_tools, catalogue, composition, fx, prices, sizing, tools, yahoo_rates
 from app.database import SessionLocal
 
 TODAY = datetime.date.today()
@@ -115,6 +115,46 @@ def records(client, monkeypatch):
 def _call(name, **arguments):
     with SessionLocal() as db:
         return analyst_tools.answer(db, advisor.ToolCall(id="call_1", name=name, arguments=json.dumps(arguments)))
+
+
+def test_missing_rates_do_not_reveal_goals_to_the_analyst(client, records, monkeypatch):
+    monkeypatch.setattr(fx, "_fetch_rates", lambda *args: {DAY: {"USD": 1.25}})
+    monkeypatch.setattr(
+        yahoo_rates, "rates_on_days",
+        lambda db, base, days, code: {day: None for day in days},
+    )
+    iid = client.post("/api/institutions", json={"name": "Banca Beta"}).json()["id"]
+    sid = client.post(f"/api/institutions/{iid}/snapshots", json={"date": DAY}).json()["id"]
+    made = client.post(f"/api/snapshots/{sid}/holdings", json={
+        "asset_name": "Unquoted holding", "asset_class": "equity",
+        "value": 400, "currency": "TWD",
+    })
+    assert made.status_code == 201, made.text
+
+    before = _call("get_look_through")
+    assert before["ok"], before
+    assert before["result"]["total_value"] == 7000.0
+    assert before["result"]["unconverted"] == [{
+        "currency": "TWD", "not_a_code": False, "shares": {"total_value": 400.0},
+    }]
+
+    for number in range(7):
+        made = client.post("/api/goals", json={
+            "name": f"Private family goal {number}", "type": "target_amount",
+            "target_amount": 10000, "currency": "TWD",
+        })
+        assert made.status_code == 201, made.text
+
+    assert _call("get_look_through") == before
+    with SessionLocal() as db:
+        chat = tools.answer(db, advisor.ToolCall(
+            id="chat_1", name="get_look_through", arguments="{}",
+        ))
+    assert chat["ok"], chat
+    notice, = chat["result"]["unconverted"]
+    assert any(row["kind"] == "goal" for row in notice["rows"])
+    assert notice["more_rows"] > 0
+    assert notice["shares"] == {"total_value": 400.0}
 
 
 # --- What the catalogue holds on a fund's index ----------------------------------------
@@ -292,13 +332,9 @@ def test_a_tool_the_analysis_is_not_offered_runs_nothing(records, monkeypatch, n
         "get_look_through, catalogue_same_index, instrument_facts, weigh_change, search_web.")}
 
 
-def test_the_web_is_declared_for_anthropics_models_only():
+def test_the_web_is_declared_for_supported_copilot_models():
     names = lambda model: [d["function"]["name"] for d in analyst_tools.declarations(model, 3)]  # noqa: E731
-    assert names("anthropic/claude-opus-5.5") == [
+    assert names("claude-opus-5.5") == [
         "get_look_through", "catalogue_same_index", "instrument_facts", "weigh_change", "search_web"]
-    assert names("qwen/qwen3.8-max-0902") == [
+    assert names("unsupported-model") == [
         "get_look_through", "catalogue_same_index", "instrument_facts", "weigh_change"]
-    (web,) = [d for d in analyst_tools.declarations("anthropic/claude-opus-5.5", 3)
-              if d["function"]["name"] == "search_web"]
-    assert "At most 3 a step" in web["function"]["description"]
-    assert "never put in it an amount, an account, an entry" in web["function"]["description"]

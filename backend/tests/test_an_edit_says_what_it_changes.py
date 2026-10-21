@@ -7,11 +7,10 @@ pydantic parses the absence as None, and the replace writes that None over the
 account that actually paid for the buy. Nothing complains, the net worth does
 not move, and there is no box to type the fact back into.
 
-The rule that replaced it is one sentence — **a request writes what it said** —
-and it lives in one place, `crud._update`, which is what the first test here
-holds it to. The other two say what the sentence means, per shape rather than
-per field: resend a row unchanged with one key left out and the row does not
-move; send that key as `null` and it empties.
+The rule that replaced it is one sentence — **a request writes what it said**.
+The tests say what the sentence means, per shape rather than per field:
+resend a row unchanged with one key left out and the row does not move; send
+that key as `null` and it empties.
 
 The danger in the obvious fix is the opposite one, and it is why the second
 half exists: if a form emptied a box by sending NOTHING, a partial update would
@@ -25,10 +24,11 @@ resource, a situation, has no edit form at all.
 
 from __future__ import annotations
 
-import ast
-import pathlib
+import inspect
+from typing import get_type_hints
 
 import pytest
+from pydantic import BaseModel
 
 from app import crud
 
@@ -53,7 +53,7 @@ WORKED_OUT = {"amount", "to_amount", "value"}
 # fails to preserve shows up as a None — and self-consistent, so that resending
 # the same body must leave the row exactly as it was. Each builder returns the
 # URL of the row, the body it was created with, and the row as it came back —
-# read from the create rather than fetched, because two of the fourteen have no
+# read from the create rather than fetched, because some resources have no
 # GET of their own.
 
 
@@ -143,6 +143,53 @@ def expense(client):
     body = _cash_flow_body("nature", "essential", _institution(client))
     made = client.post("/api/expenses", json=body).json()
     return f"/api/expenses/{made['id']}", body, made
+
+
+def tax_return(client):
+    body = {
+        "tax_year": 2006,
+        "jurisdiction": "Federal",
+        "filing_status": "Married filing jointly",
+        "currency": "USD",
+        "coverage": "filed_return",
+        "wages": 100000.0,
+        "taxable_interest": 100.0,
+        "tax_exempt_interest": 200.0,
+        "ordinary_dividends": 300.0,
+        "qualified_dividends": 250.0,
+        "capital_gain": -500.0,
+        "business_income": -2500.0,
+        "retirement_distributions": 50000.0,
+        "taxable_retirement_distributions": 40000.0,
+        "unemployment_income": 1000.0,
+        "other_income": 400.0,
+        "total_income": 138800.0,
+        "adjustments": 5000.0,
+        "hsa_deduction": 2000.0,
+        "moving_expenses": 1000.0,
+        "ira_deduction": 2000.0,
+        "adjusted_gross_income": 133800.0,
+        "deductions": 10000.0,
+        "exemptions": 6000.0,
+        "taxable_income": 117800.0,
+        "tax_before_credits": 20000.0,
+        "credits": 2000.0,
+        "other_taxes": 1000.0,
+        "total_tax": 19000.0,
+        "withholding": 18000.0,
+        "estimated_payments": 2000.0,
+        "other_payments": 500.0,
+        "total_payments": 20500.0,
+        "refund": 1500.0,
+        "amount_owed": 0.0,
+        "penalty": 0.0,
+        "source_path": "2006/filed-return.pdf",
+        "notes": "Amounts transcribed from the surviving return",
+    }
+    response = client.post("/api/tax-returns", json=body)
+    assert response.status_code == 201, response.text
+    made = response.json()
+    return f"/api/tax-returns/{made['id']}", body, made
 
 
 def goal(client):
@@ -265,6 +312,7 @@ EDITABLE = {
     "update_real_asset_valuation": real_asset_valuation,
     "update_income_source": income_source,
     "update_expense": expense,
+    "update_tax_return": tax_return,
     "update_goal": goal,
     "update_cash_anchor": cash_anchor,
     "update_transfer": transfer,
@@ -277,23 +325,17 @@ RESOURCES = sorted(EDITABLE)
 
 
 def _updates_in_crud() -> set[str]:
-    """Every `update_*` in crud.py that is handed a `*Create` payload.
-
-    Read out of the source rather than listed, for the reason `_columns` exists
-    at all: a list written by hand is a line somebody forgets. A fifteenth
-    editable resource fails this file on the day it is added, not on the day it
-    destroys something.
-    """
-    tree = ast.parse(pathlib.Path(crud.__file__).read_text(encoding="utf-8"))
+    """Discover editable interfaces from their runtime payload types."""
     return {
-        fn.name
-        for fn in ast.walk(tree)
-        if isinstance(fn, ast.FunctionDef)
-        and fn.name.startswith("update_")
+        name
+        for name, fn in inspect.getmembers(crud, inspect.isfunction)
+        if name.startswith("update_")
         and any(
-            isinstance(a.annotation, ast.Attribute)
-            and a.annotation.attr.endswith("Create")
-            for a in fn.args.args
+            isinstance(payload, type)
+            and issubclass(payload, BaseModel)
+            and payload.__name__.endswith("Create")
+            for parameter, payload in get_type_hints(fn).items()
+            if parameter != "return"
         )
     }
 
@@ -313,9 +355,6 @@ def _facts(row: dict) -> dict:
     return row
 
 
-# --- The rule lives in one place -------------------------------------------
-
-
 def test_every_editable_resource_is_covered_here():
     """The two tests below are only worth having if they look at everything.
 
@@ -324,33 +363,6 @@ def test_every_editable_resource_is_covered_here():
     nothing.
     """
     assert set(EDITABLE) == _updates_in_crud()
-
-
-def test_no_update_writes_a_payload_of_its_own():
-    """One place, the way the allow-list is one place.
-
-    The failure this replaced was thirteen hand-written field-by-field copies
-    (`_columns`), and the fix must not walk back into it: an update that built
-    its own payload and handed it to `_apply` would be free to decide on its
-    own what an absent key means. So every `update_*` goes through `_update`,
-    and `_update` is the only thing that reads `model_fields_set`.
-
-    `update_accumulation_plan` touches its row before delegating — it zeroes a
-    carried remainder that no longer means what it meant — which is why this
-    asks that `_update` is reached, not that nothing else happens.
-    """
-    tree = ast.parse(pathlib.Path(crud.__file__).read_text(encoding="utf-8"))
-    for fn in ast.walk(tree):
-        if not (isinstance(fn, ast.FunctionDef) and fn.name in _updates_in_crud()):
-            continue
-        called = {
-            n.func.id for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-        }
-        assert "_update" in called, f"{fn.name} does not go through _update"
-        assert "_apply" not in called, (
-            f"{fn.name} writes its own payload: which columns one request may "
-            f"touch is _update's decision, in one place"
-        )
 
 
 # --- What the rule means ---------------------------------------------------

@@ -74,8 +74,8 @@ scratch, delete `backend/demo.db` and start with the flag.
 
 Your records live in `backend/data.db`. If your money is not mostly in euros, set the base
 currency first, in Profile: it is the currency every total is shown in and the one each new
-record proposes. Anything recorded in another currency is converted at the European Central
-Bank's rate of the day.
+record proposes. See [One currency](how-to-calculate-net-worth.md#one-currency) for how amounts
+in other currencies enter totals and how unavailable conversion rates are reported.
 
 Then, under Records:
 
@@ -125,8 +125,8 @@ make the copy, and if the change fails it puts the copy back.
 
 All of them are in one SQLite file, `backend/data.db`. To back it up, copy the file while
 Aurelio is stopped. To move to another computer, install Aurelio there and copy the file into
-`backend/`. Git ignores `*.db` files and `backend/.env` (where the AI key goes), so `git pull`
-never touches your records or your key.
+`backend/`. Git ignores `*.db` files and `backend/.env` (local settings), so `git pull`
+never touches your records or those settings.
 
 The server listens on your own computer only (`localhost`), and it has no login. It is meant
 to be opened in the browser of the machine it runs on, not exposed to a network.
@@ -138,9 +138,9 @@ Run `uv run pytest` in `backend/` and `npm test` in `frontend/`. For hot reload,
 
 ## Questions
 
-**Is Aurelio free?** Yes: it is open source under the MIT license. The AI part, if you use
-it, is paid per question to OpenRouter with your own key; see
-[How much does an AI financial advisor cost?](how-much-does-an-ai-financial-advisor-cost.md).
+**Is Aurelio free?** Yes: it is open source under the MIT license. The optional AI uses the
+GitHub Copilot subscription authenticated on the machine; see
+[GitHub Copilot usage in Aurelio](github-copilot-usage.md).
 
 **Does it need an internet connection?** Your records and the totals built from them do not.
 Market prices, fund compositions, exchange rates and the AI do.
@@ -153,6 +153,6 @@ computer, opened in that computer's browser; the start script runs it directly.
 
 ## Next
 
-- [An AI financial advisor with your own OpenRouter key](ai-financial-advisor-with-your-own-openrouter-key.md),
-  if you want the chat and the analysis.
+- [Use Aurelio with GitHub Copilot](github-copilot-models.md), if you want the chat and the
+  analysis.
 - [How to calculate net worth](how-to-calculate-net-worth.md), to read the Dashboard.

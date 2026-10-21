@@ -29,6 +29,8 @@ import logging
 import math
 import re
 from dataclasses import dataclass
+from functools import partial
+from types import SimpleNamespace
 
 from app import dated
 
@@ -136,43 +138,57 @@ def _fetch_close_window(
     symbol: str, start: datetime.date, end: datetime.date
 ) -> list[tuple[str, float | None]]:
     """[(day_iso, close or None), ...] for every row Yahoo has in [start, end),
-    ascending, rows with no prices INCLUDED as None. Network call.
+    ascending, including rows without prices as None. Network call.
 
-    `keepna=True` is the whole point of this helper, and a line in this
-    module that must not be simplified. yfinance drops a row whose prices are
-    all NaN and whose volume is zero, and the volume Yahoo reports for the most
-    recent bar is not always zero — measured on 2026-09-17 for VWCE.MI's 16th:
-    volume 16,407 in a window ending that day (the row survives, with a NaN
-    close) and 0 in a wider one (the row is dropped). So the same missing close
-    comes back as a NaN row or as no row at all depending on where the window
-    ends, and a caller reading "the last row" silently gets the PREVIOUS
-    session — priced and dated on a day the purchase did not happen. Asking for
-    the rows as they are lets the day being asked about be looked up instead of
-    assumed. A window whose every row is empty reads the same way since
-    yfinance 1.7.0, which gives every price column as numbers; 1.4.1 gave that
-    column as None objects, and the `float` below raised TypeError (brief AT,
-    `tests/test_a_window_of_empty_rows.py`).
-
-    `auto_adjust=False` must not be simplified either. yfinance's default
-    puts Yahoo's dividend-adjusted close where the close is: lower than the
-    price the day traded at by every dividend paid since, and a purchase is
-    made at the price of its day. Measured 2026-10-08 (brief AK), each on the
-    session before an ex-date: `get_price_on` read KO's 2026-09-14 as 88.82
-    where the close was 89.35, ENI.MI's 2026-09-18 as 23.68 for 23.95, and
-    ISF.L's 2026-09-16 as 1046.1134 for 1046.20. So a plan's occurrence priced
-    after an ex-date of its fund had passed was bought below its day's price."""
+    Keep unpriced rows and unadjusted closes, using yfinance's exchange-date
+    normalization. Only a successful empty chart is an empty window;
+    failed requests and malformed responses raise PriceError."""
     import yfinance as yf
+    from yfinance.exceptions import YFPricesMissingError
 
-    hist = yf.Ticker(symbol).history(
-        start=start.isoformat(), end=end.isoformat(), keepna=True, auto_adjust=False
-    )
-    if hist is None or len(hist) == 0:
-        return []
-    out: list[tuple[str, float | None]] = []
-    for idx, close in hist["Close"].items():
-        value = float(close)
-        out.append((idx.date().isoformat(), None if value != value else value))  # NaN
-    return sorted(out)
+    empty = False
+
+    def checked_get(getter, **kwargs):
+        nonlocal empty
+        empty = False
+        response = getter(**kwargs)
+        if response.status_code != 200:
+            raise ValueError(f"Yahoo HTTP {response.status_code}")
+        chart = response.json()["chart"]
+        if chart["error"] is not None:
+            raise ValueError(f"Yahoo chart error: {chart['error']}")
+        (result,) = chart["result"]
+        empty = (
+            "period1" in kwargs.get("params", {})
+            and result.get("timestamp", []) == []
+            and result["indicators"]["quote"] == [{}]
+            and bool(result["meta"]["exchangeTimezoneName"])
+        )
+        return response
+
+    try:
+        ticker = yf.Ticker(symbol)
+        transport = ticker._data
+        ticker._data = SimpleNamespace(
+            get=partial(checked_get, transport.get),
+            cache_get=partial(checked_get, transport.cache_get),
+        )
+        try:
+            hist = ticker.history(
+                start=start.isoformat(), end=end.isoformat(), keepna=True,
+                auto_adjust=False, raise_errors=True,
+            )
+        except YFPricesMissingError:
+            if empty:
+                return []
+            raise
+        out: list[tuple[str, float | None]] = []
+        for idx, close in hist["Close"].items():
+            value = float(close)
+            out.append((idx.date().isoformat(), None if value != value else value))
+        return sorted(out)
+    except Exception as exc:
+        raise PriceError(f"Could not fetch closes for '{symbol}': {exc}") from exc
 
 
 def _fetch_recent_close(symbol: str) -> tuple[float, str | None, str]:

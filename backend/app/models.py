@@ -17,12 +17,6 @@ Liabilities (F1): debts (mortgage, loans, ...) live in their own branch with
 dated outstanding balances (mirroring real-asset valuations). Net worth =
 financial + real − liabilities. A liability can optionally point to the real
 asset it finances (mortgage -> house) to surface the user's equity.
-
-Tables: settings, institutions, snapshots, holdings, real_assets,
-real_asset_valuations, liabilities, liability_balances, income_sources,
-expenses, cash_anchors, transfers, survey_responses, goals,
-accumulation_plans, transactions, price_cache, composition_cache, fx_rates,
-chain_runs, chain_steps, chat_conversations, chat_messages, watchlist_items.
 """
 
 from __future__ import annotations
@@ -388,6 +382,66 @@ class Expense(CashFlowItemMixin, Base):
     # housing | food | transport | utilities | health | insurance | debt | leisure | education | other
 
 
+
+class TaxReturn(Base):
+    """One annual return for one tax jurisdiction.
+
+    Historical tax figures are annual facts, not recurring cash-flow rows. A
+    federal return and a state return for the same year therefore occupy two
+    rows. The supported evidence categories are defined by
+    ``schemas.TaxReturnBase.coverage``.
+    """
+
+    __tablename__ = "tax_returns"
+    __table_args__ = (
+        UniqueConstraint("tax_year", "jurisdiction", name="uq_tax_return_year_jurisdiction"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tax_year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    jurisdiction: Mapped[str] = mapped_column(String, nullable=False)
+    filing_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    currency: Mapped[str] = mapped_column(String, nullable=False)
+    # filed_return | source_documents | payment_only
+    coverage: Mapped[str] = mapped_column(String, nullable=False)
+
+    wages: Mapped[float | None] = mapped_column(Float, nullable=True)
+    taxable_interest: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tax_exempt_interest: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ordinary_dividends: Mapped[float | None] = mapped_column(Float, nullable=True)
+    qualified_dividends: Mapped[float | None] = mapped_column(Float, nullable=True)
+    capital_gain: Mapped[float | None] = mapped_column(Float, nullable=True)
+    business_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    retirement_distributions: Mapped[float | None] = mapped_column(Float, nullable=True)
+    taxable_retirement_distributions: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unemployment_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    other_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    adjustments: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hsa_deduction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    moving_expenses: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ira_deduction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    adjusted_gross_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    deductions: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exemptions: Mapped[float | None] = mapped_column(Float, nullable=True)
+    taxable_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tax_before_credits: Mapped[float | None] = mapped_column(Float, nullable=True)
+    credits: Mapped[float | None] = mapped_column(Float, nullable=True)
+    other_taxes: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
+    withholding: Mapped[float | None] = mapped_column(Float, nullable=True)
+    estimated_payments: Mapped[float | None] = mapped_column(Float, nullable=True)
+    other_payments: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_payments: Mapped[float | None] = mapped_column(Float, nullable=True)
+    refund: Mapped[float | None] = mapped_column(Float, nullable=True)
+    amount_owed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    penalty: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, default=_utcnow_iso, nullable=False)
+
+
 class CashAnchor(Base):
     """A manually-entered ACTUAL cash balance for an institution at a date.
 
@@ -449,9 +503,10 @@ class Transfer(Base):
     )
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(String, nullable=False)
-    # What reached the destination, fixed on the day. Worked out at the ECB
-    # rate final for `date` when it was not copied from a statement, and then
-    # `fx_as_of` is that rate's day; a figure the reader typed leaves it empty.
+    # What reached the destination, fixed on the day. Worked out at the rate
+    # final for `date` (the ECB's, or Yahoo's for a currency the ECB does not
+    # publish) when it was not copied from a statement, and then `fx_as_of` is
+    # that rate's day; a figure the reader typed leaves it empty.
     to_amount: Mapped[float] = mapped_column(Float, nullable=False)
     to_currency: Mapped[str] = mapped_column(String, nullable=False)
     fx_as_of: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -565,7 +620,8 @@ class Transaction(Base):
     currency: Mapped[str] = mapped_column(String, nullable=False)
     # What `unit_price` is in. Empty only for a close, which has no price.
     price_currency: Mapped[str | None] = mapped_column(String, nullable=True)
-    # The ECB day whose rate turned quantity * unit_price into `amount`, when
+    # The day of the rate (the ECB's, or Yahoo's for a currency the ECB does
+    # not publish) that turned quantity * unit_price into `amount`, when
     # the app derived it across two currencies. Empty when there was nothing to
     # convert, or when the figure is the reader's own — which is how a debit
     # copied from a statement is told apart from one worked out here.
@@ -625,12 +681,10 @@ class ChainStep(Base):
     model: Mapped[str | None] = mapped_column(String, nullable=True)
     output: Mapped[str] = mapped_column(Text, nullable=False)
     duration_ms: Mapped[int | None] = mapped_column(nullable=True)
-    # What this step cost, in USD, as OpenRouter reported it on the final
-    # chunk's `usage`. Nullable because it is what the provider SAID and not
-    # what we computed: a model that answers without a usage figure leaves this
-    # empty rather than a zero, and a zero is a price. Sibling of duration_ms
-    # for the same reason — the card that asks the reader to spend a minute and
-    # a few cents quotes both from the last run, and neither may be a guess.
+    # Historical USD cost reported by the model provider. GitHub Copilot uses
+    # subscription quota rather than a per-call USD price, so new Copilot-backed
+    # steps leave this nullable field empty. Historical prices and measured
+    # durations remain available to the analysis proposal card.
     cost: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     run: Mapped["ChainRun"] = relationship(back_populates="steps")
@@ -733,6 +787,26 @@ class FxRate(Base):
     base: Mapped[str] = mapped_column(String, primary_key=True)
     currency: Mapped[str] = mapped_column(String, primary_key=True)
     as_of: Mapped[str] = mapped_column(String, primary_key=True)  # the ECB day
+    rate: Mapped[float] = mapped_column(Float, nullable=False)
+    fetched_at: Mapped[str] = mapped_column(String, default=_utcnow_iso, nullable=False)
+
+
+class FxRateYahoo(Base):
+    """One of Yahoo's daily closes for a currency the ECB does not publish:
+    units of `currency` per 1 US dollar (`USD{currency}=X`), as it closed on
+    `as_of` (brief BA, the reader's decision D1).
+
+    Kept like `FxRate`: a row per day, the history kept, and a day written
+    only once it is over. A table of its own and not a column on `fx_rates`,
+    so the ECB's rows are read exactly as before: its whole-day rule would
+    otherwise take a day only Yahoo has a close for (25 December 2024) as the
+    ECB's day in force. Read by `yahoo_rates`, which crosses it at the ECB's
+    dollar of the same day into any base."""
+
+    __tablename__ = "fx_rates_yahoo"
+
+    currency: Mapped[str] = mapped_column(String, primary_key=True)
+    as_of: Mapped[str] = mapped_column(String, primary_key=True)  # Yahoo's day
     rate: Mapped[float] = mapped_column(Float, nullable=False)
     fetched_at: Mapped[str] = mapped_column(String, default=_utcnow_iso, nullable=False)
 
@@ -933,16 +1007,12 @@ class ChatMessage(Base):
     # and on a prompt that had since grown by half.
     prompt_tokens: Mapped[int | None] = mapped_column(nullable=True)
     # Of those, how many the provider read from its cache, summed the same way.
-    # Since the chat asks Anthropic's models to cache (2026-10-05), the token
-    # count alone stopped saying what a turn cost: on Opus 5.5 a cached token
-    # was billed at a twentieth of the input price. A zero is kept as zero,
-    # since it is an answer (nothing read from the cache); None means the
-    # provider did not say.
+    # Zero means no cached input; None means the provider did not say. These
+    # counts describe usage, not a subscription's dollar price.
     cached_tokens: Mapped[int | None] = mapped_column(nullable=True)
-    # What OpenRouter says the turn's rounds cost, in USD, summed: the chat's
-    # own figure beside `chain_steps.cost`. None when any round's price was not
-    # reported, never a partial sum, because a cost that is low without saying
-    # so is the worse mistake. An analysis the turn ran records its steps in
+    # Historical provider-reported USD cost summed over a turn's rounds.
+    # Copilot-backed turns leave it empty because subscription quota is not a
+    # dollar price. An analysis the turn ran records its steps in
     # `chain_steps`, not here.
     cost: Mapped[float | None] = mapped_column(nullable=True)
     created_at: Mapped[str] = mapped_column(String, default=_utcnow_iso, nullable=False)

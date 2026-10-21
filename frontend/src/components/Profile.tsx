@@ -63,37 +63,34 @@ export default function Profile() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
+    async function load() {
+      try {
+        const [asked, existing, taxes, currentBase] = await Promise.all([
+          getSurveyQuestions(),
+          getSurvey(),
+          getTaxSettings(),
+          getBaseCurrency(),
+        ]);
+        setQuestions(asked);
+        setBase(currentBase);
+        setPickedBase(currentBase.base_currency);
+        setTax(taxes);
+        setTaxCountry(taxes.country ?? "");
+        setCgRate(taxes.capital_gains_rate?.toString() ?? "");
+        setDivRate(taxes.dividend_withholding_rate?.toString() ?? "");
+        const map: Record<string, string> = {};
+        for (const a of existing) if (a.answer != null) map[a.question_key] = a.answer;
+        setAnswers(map);
+        setCarried(othersOf(asked, existing));
+        setDropped([]);
+      } catch (err) {
+        setError(apiError(err, "Could not reach the backend. Is it running on :8000?"));
+      } finally {
+        setLoading(false);
+      }
+    }
     void load();
   }, []);
-
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      const [asked, existing, taxes, currentBase] = await Promise.all([
-        getSurveyQuestions(),
-        getSurvey(),
-        getTaxSettings(),
-        getBaseCurrency(),
-      ]);
-      setQuestions(asked);
-      setBase(currentBase);
-      setPickedBase(currentBase.base_currency);
-      setTax(taxes);
-      setTaxCountry(taxes.country ?? "");
-      setCgRate(taxes.capital_gains_rate?.toString() ?? "");
-      setDivRate(taxes.dividend_withholding_rate?.toString() ?? "");
-      const map: Record<string, string> = {};
-      for (const a of existing) if (a.answer != null) map[a.question_key] = a.answer;
-      setAnswers(map);
-      setCarried(othersOf(asked, existing));
-      setDropped([]);
-    } catch (err) {
-      setError(apiError(err, "Could not reach the backend. Is it running on :8000?"));
-    } finally {
-      setLoading(false);
-    }
-  }
 
   function setAnswer(key: string, value: string) {
     setAnswers((a) => ({ ...a, [key]: value }));
@@ -139,8 +136,8 @@ export default function Profile() {
         <h2 className="text-lg font-semibold text-ink">Profile &amp; goals</h2>
         <p className="text-sm text-ink-soft">
           A short questionnaire that gives Aurelio your context. Saved on your
-          machine; sent to the AI model through OpenRouter when you run an
-          analysis or ask the chat.
+          machine; sent to GitHub Copilot and its model providers when you run
+          an analysis or ask the chat.
         </p>
       </div>
 
@@ -302,8 +299,9 @@ function OtherAnswers({
 
    What the reader has to know before changing it is what moves and what does
    not. Every total moves — the net worth, the history, every converted figure —
-   because it is the same wealth measured in another unit, at the ECB rate of
-   each figure's own day. Nothing recorded moves: an amount keeps the currency
+   because it is the same wealth measured in another unit, at the rate of
+   each figure's own day (the ECB's, or Yahoo's for a currency the ECB does
+   not publish). Nothing recorded moves: an amount keeps the currency
    it was typed in, and a sum fixed on its day stays what it was. The choices
    are the currencies the ECB publishes, because a total can only be converted
    into one somebody publishes a rate for. */
@@ -324,8 +322,9 @@ function BaseCurrencySection({
       <p className="text-sm text-ink-soft">
         Every total is shown in this currency: your net worth, its history, every
         converted figure. Changing it moves all of them, the history included:
-        it is the same wealth in another unit, converted at the ECB rate of each
-        figure's own day. Nothing you recorded is rewritten: every amount keeps
+        it is the same wealth in another unit, converted at the rate of each
+        figure's own day: the ECB's, or Yahoo's for a currency the ECB does not
+        publish. Nothing you recorded is rewritten: every amount keeps
         the currency you typed it in, and a debit or a transfer fixed on its day
         stays what it was.
       </p>

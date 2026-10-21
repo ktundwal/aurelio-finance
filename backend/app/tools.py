@@ -43,10 +43,9 @@ instant lane waits for the slow one while an outage empties a list that had
 good local results in it.
 
 `search_web` fails the first too, and is the one read tool REGISTRY does not
-hold. What it reads is the web, through a request of its own to OpenRouter
-(`websearch`), and the pages it finds and what it costs belong to the turn
-that ran it, so the chat loop answers it. It is declared here like the others
-(`web_search`), for Anthropic's models only (brief AM).
+hold. It runs as a separate GitHub Copilot request carrying only the bounded
+query; the chat loop returns the pages to the model and shows those sources to
+the reader. It is offered to Claude and GPT models supported by the adapter.
 
 Tools that WRITE do not run from here. They are proposed: a card the reader
 confirms, and only then does the normal write path run — `crud`, a unit of
@@ -71,11 +70,11 @@ security reads as approval of a purchase nobody proposed.
 
 `run_analysis` is a write like the others and stretches the word in one
 direction only: what it writes is a `ChainRun`, and what makes it a proposal is
-not that it is hard to undo but that it costs the reader a minute of waiting
-and a few cents before it produces anything. The card asks first and quotes the
-last run's measured time and price. It is also the only tool with a `walk`
-instead of a `run`, because a minute of silence is the thing a confirmation
-card should not buy you.
+not that it is hard to undo but that it consumes waiting time and subscription
+quota before it produces anything. The card asks first and quotes the last
+run's measured duration, and a historical price only when recorded. It is also
+the only tool with a `walk` instead of a `run`, because a minute of silence is
+the thing a confirmation card should not buy you.
 """
 
 from __future__ import annotations
@@ -984,7 +983,8 @@ class RecordTransactionArgs(BaseModel):
             "ISO code `unit_price` is in: the listing's currency, e.g. USD for "
             "a New York share, EUR for VWCE.MI. Required for a buy, a sell and a "
             "dividend; null for a close. When it differs from `currency` and "
-            "`amount` is null, the amount is worked out at the ECB rate of `date`."
+            "`amount` is null, the amount is worked out at the rate of `date`: the "
+            "ECB's, or Yahoo's for a currency the ECB does not publish."
         ),
     )
     amount: float | None = Field(
@@ -1247,8 +1247,10 @@ def _propose_transaction(db: Session, args: RecordTransactionArgs) -> Proposal:
     cash = f"{entry.amount:.2f} {entry.create.currency}"
     if entry.fx_as_of:
         # A debit worked out here, not read off a statement: the card says so,
-        # and says which day's rate, so the reader can check it against theirs.
-        cash += f" (at the ECB rate of {entry.fx_as_of})"
+        # and says which day's rate and whose, so the reader can check it
+        # against theirs.
+        rate = fx.rate_words(db, (entry.create.currency, entry.create.price_currency), entry.fx_as_of)
+        cash += f" (at {rate})"
     if args.kind == "close":
         body = f"{what} — {cash} back"
     elif args.kind == "dividend":
@@ -1302,6 +1304,7 @@ def _record_transaction(db: Session, args: RecordTransactionArgs) -> dict:
         "currency": tx.currency,
         "price_currency": tx.price_currency,
         "fx_as_of": tx.fx_as_of,
+        "fx_source": _source(db, tx.fx_as_of, tx.currency, tx.price_currency),
         "institution": entry.institution.name if entry.institution else None,
     }
 
@@ -1330,9 +1333,23 @@ def _transaction_receipt(result: dict) -> list[tuple]:
     the card's own fields cannot show."""
     return [
         ("Amount", result.get("amount"), "amount", result.get("currency")),
-        ("At the ECB rate of", result.get("fx_as_of"), "date"),
+        _rate_field(result),
         ("Held at", result.get("institution"), "text"),
     ]
+
+
+def _source(db: Session, day: str | None, *codes: str | None) -> str | None:
+    """Whose rate a sum fixed on `day` took (`fx.source_of`), None for none."""
+    return fx.source_of(db, codes, day) if day else None
+
+
+def _rate_field(result: dict) -> tuple:
+    """A receipt's line for the day of the rate a sum was worked out at, with
+    whose rate it was (brief BA). A card confirmed before brief BA kept no
+    `fx_source`, and every rate was the ECB's then. A result with no day
+    shows no line."""
+    source = result.get("fx_source") or "ECB"
+    return (f"At the {source} rate of", result.get("fx_as_of"), "date")
 
 
 # --- change_ledger_entry -------------------------------------------------------------
@@ -1780,6 +1797,7 @@ def _change_ledger_entry(db: Session, args: ChangeLedgerEntryArgs) -> dict:
         "amount": kept.amount,
         "currency": kept.currency,
         "fx_as_of": kept.fx_as_of,
+        "fx_source": _source(db, kept.fx_as_of, kept.currency, kept.price_currency),
     }
 
 
@@ -1803,7 +1821,7 @@ def _ledger_receipt(result: dict) -> list[tuple]:
         return [("Deleted", result["deleted"], "text")]
     return [
         ("Now", result.get("entry"), "text"),
-        ("At the ECB rate of", result.get("fx_as_of"), "date"),
+        _rate_field(result),
     ]
 
 
@@ -2894,8 +2912,9 @@ class RecordTransferArgs(BaseModel):
         gt=0,
         description=(
             "What reached the second account, from its statement, when the two "
-            "currencies differ. Null works it out at the ECB rate of the day, and is "
-            "refused when that day has no final rate yet."
+            "currencies differ. Null works it out at the rate of the day (the ECB's, "
+            "or Yahoo's for a currency the ECB does not publish), and is refused when "
+            "that day has no final rate yet."
         ),
     )
 
@@ -2942,7 +2961,11 @@ def _propose_transfer(db: Session, args: RecordTransferArgs) -> Proposal:
         raise LookupError(str(exc)) from exc
     left = f"{body['amount']:.2f} {body['currency']}"
     reached = f"{stored['to_amount']:.2f} {body['to_currency']}"
-    rate = f" (at the ECB rate of {stored['fx_as_of']})" if stored.get("fx_as_of") else ""
+    rate = (
+        f" (at {fx.rate_words(db, (body['currency'], body['to_currency']), stored['fx_as_of'])})"
+        if stored.get("fx_as_of")
+        else ""
+    )
     moved = left if left == reached else f"{left} → {reached}{rate}"
     return Proposal(
         title=f"transfer: {moved}, {source.name} to {target.name}, {body['date']}",
@@ -2974,6 +2997,7 @@ def _record_transfer(db: Session, args: RecordTransferArgs) -> dict:
         "to_amount": made.to_amount,
         "to_currency": made.to_currency,
         "fx_as_of": made.fx_as_of,
+        "fx_source": _source(db, made.fx_as_of, made.currency, made.to_currency),
     }
 
 
@@ -2991,7 +3015,7 @@ _TRANSFER_LABELS = {
 def _transfer_receipt(result: dict) -> list[tuple]:
     return [
         ("Reached", result.get("to_amount"), "amount", result.get("to_currency")),
-        ("At the ECB rate of", result.get("fx_as_of"), "date"),
+        _rate_field(result),
     ]
 
 
@@ -3048,7 +3072,8 @@ class ChangeTransferArgs(BaseModel):
         description=(
             "correct: what reached the second account, from its statement. Null keeps a "
             "figure typed from a statement, and works out again one the app worked out, at "
-            "the ECB rate of its day."
+            "the rate of its day: the ECB's, or Yahoo's for a currency the ECB does not "
+            "publish."
         ),
     )
 
@@ -3074,8 +3099,15 @@ def _side(db: Session, iid: int | None) -> str:
 
 
 def _same_sum(t) -> bool:
-    """The Cash flow page's `sameSum`: one currency, and what arrived is what left."""
-    return t.to_currency == t.currency and t.to_amount == t.amount
+    """The Cash flow page's `sameSum`: one currency, and what arrived is what
+    left, read in the destination's unit within half a cent and a hair.
+
+    One currency as `fx.same_currency` reads it (brief BA): a transfer stored
+    EUR to "eur", or GBP to GBp, was worked out with the minor-unit step and no
+    rate day (`crud._transfer_columns`), and compared as written it read as an
+    arrival typed from a statement."""
+    left = fx.within_currency(t.amount, t.currency, t.to_currency)
+    return left is not None and abs(t.to_amount - left) <= 0.005 + 1e-9
 
 
 def _transfer_text(db: Session, t) -> str:
@@ -3083,7 +3115,7 @@ def _transfer_text(db: Session, t) -> str:
     moved = f"{t.amount:.2f} {t.currency}"
     if not _same_sum(t):
         moved += f" → {t.to_amount:.2f} {t.to_currency}"
-    rate = f" at the ECB rate of {t.fx_as_of}" if t.fx_as_of else ""
+    rate = f" at {fx.rate_words(db, (t.currency, t.to_currency), t.fx_as_of)}" if t.fx_as_of else ""
     return f"{t.date} {_side(db, t.from_institution_id)} to {_side(db, t.to_institution_id)}: {moved}{rate}"
 
 
@@ -3182,10 +3214,10 @@ def _transfer_change(db: Session, args: ChangeTransferArgs) -> _TransferChange:
     return _TransferChange(t, body, models.Transfer(**{**columns, **changes}))
 
 
-def _arrival(t) -> str:
-    """How what arrived was had, in the reader's words."""
+def _arrival(db: Session, t) -> str:
+    """How what arrived was had, in the reader's words, whose rate included."""
     if t.fx_as_of:
-        return f"at the ECB rate of {t.fx_as_of}"
+        return f"at {fx.rate_words(db, (t.currency, t.to_currency), t.fx_as_of)}"
     return "the same sum" if _same_sum(t) else "from a statement"
 
 
@@ -3209,7 +3241,7 @@ def _propose_transfer_change(db: Session, args: ChangeTransferArgs) -> Proposal:
             ("To", _side(db, t.to_institution_id), _side(db, after.to_institution_id)),
             ("Left", f"{t.amount:.2f} {t.currency}", f"{after.amount:.2f} {after.currency}"),
             ("Reached", f"{t.to_amount:.2f} {t.to_currency}", f"{after.to_amount:.2f} {after.to_currency}"),
-            ("What arrived is", _arrival(t), _arrival(after)),
+            ("What arrived is", _arrival(db, t), _arrival(db, after)),
         ]
         diff = [{"field": f, "now": now, "proposed": then} for f, now, then in fields if now != then]
         if not diff:
@@ -3227,7 +3259,10 @@ def _propose_transfer_change(db: Session, args: ChangeTransferArgs) -> Proposal:
                 "figure if it changed."
             )
         elif after.fx_as_of and (after.fx_as_of, after.to_amount) != (t.fx_as_of, t.to_amount):
-            said.append(f"What arrived is worked out again, at the ECB rate of {after.fx_as_of}.")
+            said.append(
+                "What arrived is worked out again, at "
+                f"{fx.rate_words(db, (after.currency, after.to_currency), after.fx_as_of)}."
+            )
         said.extend(cash_moves.said(moves, [t.date, after.date], figures=False))
         title = f"correct transfer: {t.date} {sides}" + (
             f", {t.amount:.2f} → {after.amount:.2f} {after.currency}" if after.amount != t.amount else ""
@@ -3259,6 +3294,7 @@ def _change_transfer(db: Session, args: ChangeTransferArgs) -> dict:
         "to_amount": kept.to_amount,
         "to_currency": kept.to_currency,
         "fx_as_of": kept.fx_as_of,
+        "fx_source": _source(db, kept.fx_as_of, kept.currency, kept.to_currency),
     }
 
 
@@ -3284,7 +3320,7 @@ def _change_transfer_receipt(result: dict) -> list[tuple]:
         return [("Deleted", result["deleted"], "text")]
     return [
         ("Now", result.get("transfer"), "text"),
-        ("At the ECB rate of", result.get("fx_as_of"), "date"),
+        _rate_field(result),
     ]
 
 
@@ -4744,20 +4780,10 @@ def _spent(run: models.ChainRun | None) -> float | None:
 def _propose_analysis(db: Session, args: RunAnalysisArgs) -> Proposal:
     """The card that asks before the spend, quoting measurements only.
 
-    Three things the reader is owed before a minute of their attention goes:
-    how many steps, how long the last run took, and what it cost. The first is
-    a fact about the code; the other two are read off the last run and left
-    out entirely when there has never been one: "about a minute, a few cents"
-    would be a guess printed as a fact, and the reader would have no way to
-    tell it from the measured version of the same sentence.
-
-    And since brief AR, what a run may look up, with its bounds: the analyst's
-    steps can ask in rounds and search the web, so a run's cost moves with
-    what they look up, and the last run's price is one run's. No column of a
-    step says whether it looked anything up, and none was added for the card
-    (the reader's choice, 2026-10-12), so the card says the bounds and not
-    what the last run did. It said "model calls" until then, which a step
-    that asks in rounds made untrue.
+    Step and lookup bounds describe the upcoming run. Duration and any historical
+    USD price come only from the last saved run, never an estimate. Copilot-backed
+    runs have no USD price. Lookup counts are not persisted, so the card quotes
+    the bounds rather than claiming to know what the last run looked up.
     """
     run = crud.get_latest_chain_run(db)
     took, spent = _seconds(run), _spent(run)
@@ -4787,9 +4813,7 @@ def _propose_analysis(db: Session, args: RunAnalysisArgs) -> Proposal:
         touches="a new analysis",
         consequence=(
             f"{chain.MIN_STEPS} steps, up to {chain.MAX_STEPS} if the disagreement is "
-            f"real, on {' and '.join(engines)}. {looks} {last} A request OpenRouter "
-            "turns away with 500, 502 or 503, which it says it does not bill, is asked "
-            "once more."
+            f"real, on {' and '.join(engines)}. {looks} {last}"
         ),
     )
 
@@ -4816,11 +4840,9 @@ def _walk_analysis(db: Session, args: RunAnalysisArgs) -> Iterator[Working]:
         except StopIteration as done:
             run = done.value
             break
-        # A step OpenRouter turned away once and that was asked again says so
-        # on its own line, where the reader reads the run as it goes.
-        # And one that looked things up says how much, there too (brief AR).
-        said = "; ".join(s for s in (step.looked_up, step.asked_again) if s)
-        label = f"{step.title} ({said})" if said else step.title
+        label = (
+            f"{step.title} ({step.looked_up})" if step.looked_up else step.title
+        )
         yield Working(step_no=step.step_no, label=label, duration_ms=step.duration_ms)
 
     return {
@@ -5254,8 +5276,8 @@ REGISTRY: dict[str, Tool] = {
                 "Propose it when the reader asks for an analysis or a review, "
                 "or when the last one on record predates what you can see: "
                 "positions, plans or goals it did not know about, or simply "
-                "weeks gone by. It costs the reader a minute of waiting and a "
-                "few cents, which is why it is a card they confirm and not "
+                "weeks gone by. It takes time and uses the reader's Copilot "
+                "subscription quota, which is why it is a card they confirm and not "
                 "something you can start. You cannot steer it and must not "
                 "try: what it reads is built from the records, never from "
                 "this conversation."
@@ -5287,39 +5309,28 @@ REGISTRY: dict[str, Tool] = {
 # --- What the model is shown, and what comes back ----------------------------
 
 
+def _declaration(name: str, description: str, arguments: type[BaseModel]) -> dict:
+    """One custom-tool declaration consumed by the Copilot SDK adapter."""
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": arguments.model_json_schema(),
+        },
+    }
+
+
 def declarations() -> list[dict]:
-    """Every tool as the API's `tools=` parameter wants it.
-
-    The conversion is `openai.pydantic_function_tool`, the SDK's own — so the
-    schema is generated twice over, once by Pydantic from the model and once
-    by the SDK into the strict dialect, and this module contributes no copy of
-    either. Written out by hand it would be the fourth place a field name
-    lives, after the model, the crud function and the column.
-
-    Through `advisor.sdk` rather than importing the package here, so a missing
-    `openai` says the one sentence that tells you how to fix it. This is the
-    first thing a turn touches, so a bare ImportError here would be caught as
-    an unexpected failure and reported as "the answer broke off" — a true
-    statement that helps nobody, in front of the specific one.
-    """
-    return [
-        advisor.sdk().pydantic_function_tool(
-            t.arguments, name=t.name, description=t.description
-        )
-        for t in REGISTRY.values()
-    ]
+    """Every application tool exposed to the Copilot model."""
+    return [_declaration(t.name, t.description, t.arguments) for t in REGISTRY.values()]
 
 
-# --- The web --------------------------------------------------------------------
+# --- The web -----------------------------------------------------------------
 #
-# A tool of this app since brief AM (2026-10-09), and not one of REGISTRY's: a
-# search's pages and its cost belong to the turn that ran it (the reader is
-# shown the pages where the search ran, and the turn's cost includes the
-# search's), so the chat loop answers it (`chat._searches`), and the search is
-# a request of its own (`websearch`). Until then it was OpenRouter's server
-# tool, declared on every request of the chat, and brief AL's paid probe P1
-# (2026-10-08) found that a request declaring it keeps none of the cache's
-# markers but the last: no turn read the one before it.
+# A separate Copilot request carrying only the query. It is not in REGISTRY
+# because its pages and usage belong to the turn that requested them, and the
+# chat loop must show those sources to the reader.
 
 SEARCH_WEB = "search_web"
 
@@ -5351,28 +5362,15 @@ _SEARCH_WEB_DESCRIPTION = (
     "this app for a search engine, and the reader is shown it above the pages "
     "it found: write it about instruments and facts, and never put the "
     "reader's figures, names or anything else about them in it. Each search "
-    "costs a little, and the app caps how many one answer runs."
+    "uses Copilot subscription quota, and the app caps how many one answer runs."
 )
 
 
 def web_search(model: str) -> list[dict]:
-    """`search_web`'s declaration for a model that is offered it, else nothing.
-
-    Anthropic's models only, the line brief AD drew for the cache and brief AG
-    for the web, and for the same reason: the web was measured with Opus 5.5
-    and Sonnet 4.6 and with no other family, and a model the reader can pick
-    from a menu is not where to find out what it does with a tool it has never
-    been measured with. A plain function since brief AM, so the other families
-    could be offered it as it is, once it has been measured with them.
-
-    Fixed, so the tools never change inside the prefix the provider caches."""
-    if not model.removeprefix("~").startswith("anthropic/"):
+    """Offer Aurelio's bounded web-search tool to supported Copilot models."""
+    if not (model.startswith("claude-") or model.startswith("gpt-")):
         return []
-    return [
-        advisor.sdk().pydantic_function_tool(
-            SearchWebArgs, name=SEARCH_WEB, description=_SEARCH_WEB_DESCRIPTION
-        )
-    ]
+    return [_declaration(SEARCH_WEB, _SEARCH_WEB_DESCRIPTION, SearchWebArgs)]
 
 
 def search_query(call: advisor.ToolCall) -> str | dict:

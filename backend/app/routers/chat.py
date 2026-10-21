@@ -25,13 +25,18 @@ first byte, and the reader still hears what the model makes of it afterwards.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from starlette._utils import collapse_excgroups
+from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
+from starlette.types import Receive, Scope, Send
 
-from app import chat, crud, models, schemas, tools
+from app import chat, copilot_provider, crud, models, schemas, tools
 from app.database import get_db
 from app.routers.deps import get_or_404
 
@@ -48,7 +53,10 @@ def _sse(events: Iterator[schemas.ChatEvent]) -> Iterator[str]:
 @router.get("/models", response_model=schemas.ChatModelsRead)
 def get_models() -> schemas.ChatModelsRead:
     """The model dropdown, default first."""
-    return chat.available_models()
+    try:
+        return chat.available_models()
+    except copilot_provider.CopilotError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.get("/conversations", response_model=list[schemas.ChatConversationRead])
@@ -100,17 +108,52 @@ _STREAMS = {
 }
 
 
-def _stream(events: Iterator[schemas.ChatEvent]) -> StreamingResponse:
+class _ChatResponse(StreamingResponse):
+    def __init__(self, events: Generator[schemas.ChatEvent, None, None]):
+        self.events = events
+        super().__init__(
+            _sse(events),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        with copilot_provider.cancellation_scope() as cancelled:
+            try:
+                with collapse_excgroups():
+                    async with anyio.create_task_group() as group:
+                        async def disconnected() -> None:
+                            await self.listen_for_disconnect(receive)
+                            cancelled.set()
+                            group.cancel_scope.cancel()
+
+                        group.start_soon(disconnected)
+                        try:
+                            await self.stream_response(send)
+                        except anyio.get_cancelled_exc_class():
+                            if not cancelled.is_set():
+                                raise
+                        finally:
+                            group.cancel_scope.cancel()
+            except OSError as exc:
+                raise ClientDisconnect() from exc
+        if self.background is not None:
+            await self.background()
+
+    async def stream_response(self, send: Send) -> None:
+        try:
+            await super().stream_response(send)
+        finally:
+            with anyio.CancelScope(shield=True):
+                await run_in_threadpool(self.events.close)
+
+
+def _stream(events: Generator[schemas.ChatEvent, None, None]) -> StreamingResponse:
     """One streamed answer, with the headers that keep it a stream."""
-    return StreamingResponse(
-        _sse(events),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            # A proxy that buffers a stream turns it back into a frozen box.
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return _ChatResponse(events)
 
 
 @router.post("", response_class=StreamingResponse, responses=_STREAMS)

@@ -1,113 +1,24 @@
-"""The chat that reads.
+"""The streamed chat over the user's current financial picture.
 
-A conversation over the whole financial picture, streamed as it is written.
-The model never writes. It PROPOSES: a tool that would change something drafts
-the change instead of making it, the turn ends on a card showing exactly what
-would happen, and the write runs from the normal path — same `crud`, same unit
-of work, same contract the form goes through — only once the reader confirms
-it. Which is also why none of this needs a provenance column: every row it
-creates was signed off by the person whose money it is, so "who wrote this"
-already has one answer.
+The model never writes records directly. A write tool produces a proposal card,
+the turn stops, and the normal application write path runs only after the user
+confirms the card. Asking (`POST /api/chat`) and answering a card
+(`POST /api/chat/cards/{id}`) both stream through the same orchestration loop.
 
-A turn therefore has two shapes. Asking is `POST /api/chat` and the answer
-streams back. Answering a card is `POST /api/chat/cards/{id}`, and it streams
-too, because the reader is owed the model's words about what just happened to
-their records. Both go through `stream`; the difference is only how the
-messages were built.
+Most reads are rendered into `advisor.build_context` on every turn. This lets
+the model connect sections the question did not name and prevents a stale
+conversation cache from hiding changes made in another tab. Network-backed or
+unbounded reads remain tools: fund look-through, instrument search, symbol
+lookup, past analysis documents, and web retrieval.
 
-Why almost every read is context rather than a tool. `advisor.build_context`
-renders every section, and sending all of it every turn answers BETTER than a
-tool per section, because the model sees connections between sections the
-question did not name: "can I afford a house" is also a question about the
-expenses. A tool per section buys latency, wrong-tool errors and schemas to
-save a third of the prompt.
+`run_analysis` is also a proposal. Once confirmed it runs the analyst chain as
+sub-agents with deliberately separate contexts: the analyst sees the figures
+without personal context, while the confidant sees the person without figures.
+The conversation is never copied into either context.
 
-A third, and not "two thousand tokens", because a turn has no single size any
-more and the picture is not its largest piece. Measured on 2026-09-17 against
-`qwen/qwen3.8-max`, on a saved portfolio, reading OpenRouter's own
-`prompt_tokens`, each figure the difference between two requests:
-
-    system prompt                                     2,284
-    the picture, the ack, the question, the page note 3,935  (the picture
-                                                              alone: 3,748)
-    the nine tool declarations                        4,842
-    ------------------------------------------------------
-    one turn asked from the Dashboard                11,119
-    the same turn asked on a 30-year mortgage's page 19,919
-
-The second line is why a single figure will not do: since brief S every
-question carries the note of the page it was asked from, and a mortgage's page
-note is the whole of its balance history — 8,800 tokens of it above. The five
-calls that measured this cost between $0.0066 and $0.0222 each, as OpenRouter
-reported them.
-
-Those numbers are already history, which is the lesson and not a caveat: the
-figure that stood here before was measured on that same backup a fortnight
-earlier and read 2,237 for a picture that is now 3,748. So a turn records what
-it was sent — `chat_messages.prompt_tokens`, the way `chain_steps.cost` records
-what a step cost — and the current answer is a query, not a docstring.
-
-The exception is `app/tools.py`, and it is an exception about NETWORK and not
-about size. The look-through — what the funds hold underneath — is the one
-part of this reader's picture that is not in the picture, because assembling
-it walks a waterfall of fund issuers on a cache miss. Folded into the context
-it would run on every turn, and "hello" would cost five HTTP fetches. So it is
-a tool, and a turn is up to seven round trips instead of one —
-`MAX_COMPLETIONS_PER_TURN` says why that number and not another.
-
-The second exception is `read_analysis`, and it fails a different clause of the
-same rule: a past verdict is a document, of a length nobody chose, that matters
-in one conversation out of ten. What the context carries is its date and its
-opening lines; the rest is fetched by the turn that needs it. See
-`build_chat_context`.
-
-The third exception is not about the reader's data at all. `search_catalogue`
-and `lookup_symbol` read the instrument universe — thousands of funds, and
-every quotable ticker there is — which is searched rather than sent for the
-plain reason that it does not fit and is not about them. They stay two tools
-and not one, for the reason `routers/instruments.py` keeps two endpoints.
-
-And the web, a tool of this app since brief AM (2026-10-09). For Anthropic's
-models each round offers `search_web` beside the other tools
-(`tools.web_search`), and this loop answers a call for it by running the
-search as a request of its own (`websearch`), carrying the query and nothing
-else of the conversation. Until then it was OpenRouter's own search, declared
-on every request, and brief AL's paid probe found that a request declaring it
-kept none of the cache's markers but the last, so no turn read the one before
-it. What comes back is the pages: the model reads them as the tool's result,
-and the reader is shown them as links where the search ran, under the query
-that went out. A turn runs at most WEB_SEARCHES_PER_TURN; a call past them is
-answered in words, and the tools stay as they were.
-
-And this chat is an ORCHESTRATOR now. `run_analysis` is a card like any other
-write, and confirming it runs the advisor chain (three to six steps, a
-minute of them) as SUB-AGENTS whose context it does not write. That last part
-is not a preference: the chain's whole value is that the analyst has not seen
-the person and the confidant has not seen a figure, and a model asked to brief
-a colleague summarises, and a summary carries the numbers across. The
-sub-agents read `advisor.build_portfolio_context` and
-`advisor.build_person_context` and nothing else — never the conversation, never
-a word of it. What this chat decides is WHETHER, WHEN, and what to do with the
-answer.
-
-Rebuilt every turn, on purpose. The portfolio can change while you talk —
-from another tab, from a PAC catch-up — and a context cached at the first
-question would answer the second one about a portfolio that no longer exists.
-
-The PROVIDER's cache is a different thing and does not undo that. With an
-Anthropic model each round asks it to keep what the round read
-(`_kept_prefixes` says where), and it reuses only bytes identical to what it
-kept: a picture rebuilt over unchanged records is read back (on Opus 5.5, at a
-twentieth of the input price, measured 2026-10-05), and one that changed is
-sent and paid for again, as before.
-
-Model: OPENROUTER_CHAT_MODEL, else OPENROUTER_MODEL, else the app default —
-the same three-line pattern as chain._model_for. The reader can override it
-per conversation from a dropdown, because the two things that pull on the
-choice pull in opposite directions: latency wants small, correctness on money
-wants large. When the failure mode is a wrong number about someone's money,
-the default errs large; the dropdown is the knob for the day latency matters
-more.
+Each model round uses the GitHub Copilot SDK through `app.advisor`. The model is
+`COPILOT_CHAT_MODEL`, then `COPILOT_MODEL`, then the app default; a conversation
+may override it with any model offered to the authenticated Copilot account.
 """
 
 from __future__ import annotations
@@ -116,13 +27,15 @@ import datetime
 import json
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+from contextvars import copy_context
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app import advisor, crud, dated, models, schemas, screen, tools, websearch
+from app import advisor, copilot_provider, crud, dated, models, schemas, screen, tools, websearch
 from app.database import SessionLocal, unit_of_work
 
 logger = logging.getLogger(__name__)
@@ -502,52 +415,40 @@ def system_prompt(model: str) -> str:
 
 # --- The model ---------------------------------------------------------------
 
-# The dropdown. A curated list rather than OpenRouter's own, for two reasons:
-# theirs is a network call the offline boundary would have to hold, and it has
-# three hundred entries with nothing to say about which of them to trust with
-# a question about money. These carry what is KNOWN about each, with the date
-# it was checked, so the reader picks with information rather than a slug. The
-# slugs and figures are the ones verified in .env.example; whatever the
-# environment configures joins the list, so the reader's own choice is always
-# among the options.
-CURATED_MODELS: tuple[tuple[str, str], ...] = (
-    ("anthropic/claude-opus-5.5", "the app's built-in default; 1M context, $4 / $20 per 1M tokens (checked Oct 2026)"),
-    ("anthropic/claude-sonnet-4.6", "1M context, $3 / $15 per 1M tokens (checked Oct 2026)"),
-    ("openai/gpt-6.1-sol-pro", "1.05M context, $2 / $10 per 1M tokens (checked Oct 2026)"),
-    ("qwen/qwen3.8-max-0902", "1M context, $2 / $6 per 1M tokens (checked Oct 2026)"),
-    ("moonshotai/kimi-k3", "1M context, $3 / $15 per 1M tokens (checked Aug 2026)"),
-    ("moonshotai/kimi-k2.6", "about six times cheaper than K3 (checked Aug 2026)"),
-)
+# The Copilot models offered by the authenticated GitHub account. The default
+# is first; configured role models join the list so a local choice is never
+# hidden from the menu.
 
 _ENV_MODELS = (
-    ("OPENROUTER_CHAT_MODEL", "your OPENROUTER_CHAT_MODEL"),
-    ("OPENROUTER_MODEL", "your OPENROUTER_MODEL"),
-    ("OPENROUTER_ANALYST_MODEL", "your analyst model"),
-    ("OPENROUTER_CONFIDANT_MODEL", "your confidant model"),
+    ("COPILOT_CHAT_MODEL", "your COPILOT_CHAT_MODEL"),
+    ("COPILOT_MODEL", "your COPILOT_MODEL"),
+    ("COPILOT_ANALYST_MODEL", "your analyst model"),
+    ("COPILOT_CONFIDANT_MODEL", "your confidant model"),
 )
 
 
 def default_model() -> str:
-    """The chat's own model, falling back through the app default."""
-    return advisor.resolve_model(os.getenv("OPENROUTER_CHAT_MODEL") or None)
+    """The chat's Copilot model, falling back through the app default."""
+    return advisor.resolve_model(os.getenv("COPILOT_CHAT_MODEL") or None)
 
 
 def available_models() -> schemas.ChatModelsRead:
-    """The dropdown: the default first, then the rest, no slug twice."""
+    """Authenticated Copilot models, plus explicit settings, with default first."""
     default = default_model()
     notes: dict[str, str] = {}
     for var, note in _ENV_MODELS:
         slug = os.getenv(var)
         if slug and slug not in notes:
             notes[slug] = note
-    for slug, note in CURATED_MODELS:
-        notes.setdefault(slug, note)
-    notes.setdefault(default, "the configured default")
 
-    ordered = [default, *(s for s in notes if s != default)]
+    for model in copilot_provider.models():
+        notes.setdefault(model.id, f"{model.name}; available to your GitHub Copilot account")
+
+    notes.setdefault(default, "the configured default")
+    ordered = [default, *(slug for slug in notes if slug != default)]
     return schemas.ChatModelsRead(
         default=default,
-        models=[schemas.ChatModel(slug=s, note=notes[s]) for s in ordered],
+        models=[schemas.ChatModel(slug=slug, note=notes[slug]) for slug in ordered],
     )
 
 
@@ -951,16 +852,9 @@ DECISION_ROUNDS = 2
 # rule about running a tool again sent it straight to them. And once anything
 # had been said after the card (the reply to the first card of an answer that
 # drew two, or any later exchange), the turn ended on the model's own words.
-# Measured on Opus 5.5 that day, on the reader's sequence rebuilt on test
-# data: that request was refused with a 400 whether the web was offered
-# ("Server tool ... failed: invalid request") or not ("Provider returned
-# error"), and cost nothing either way; the same request with this note at its
-# end was taken, the model reasoning when the probe's cap of 300 tokens
-# stopped it (0.073601 USD).
-#
-# A user turn at the end, where the last-round notice goes for those models
-# and for its reason: everything before it is the conversation as it stands,
-# so the cache is read up to here.
+# The note is the final user message, as is the last-round notice: it describes
+# what the application now needs instead of leaving the model to continue its
+# earlier answer.
 DECISION_NOTE = (
     "THE READER HAS JUST ANSWERED A CARD and asked nothing new; this note is "
     "the app's. {outcome}{waiting}Say what that means for them briefly, in the "
@@ -1114,17 +1008,15 @@ def _store_answer(
     prompt_tokens: int | None = None,
     cached_tokens: int | None = None,
     cost: float | None = None,
+    model: str | None = None,
 ) -> int:
     """Write the answer as it ended, in a session of this function's own: the
     request's session is closed by the time the stream finishes, and this runs
     even when the reader has gone. Returns the stored message's id.
 
-    The three figures are what the provider reported for the turn (`_spent`):
-    every token its rounds read, how many of those came from the cache, and
-    what it all cost, its web searches included. The answer to "what does a
-    turn cost", kept per turn instead of in a sentence somebody measured once.
-    The tokens alone stopped answering it the day the cache came in: on Opus
-    5.5 a cached token cost a twentieth of one sent fresh (2026-10-05)."""
+    Usage is measured on the answering rounds (`_spent`), not inferred from
+    prompt size. Historical USD costs can include web retrieval; Copilot-backed
+    turns leave cost empty rather than converting quota into dollars."""
     with SessionLocal() as db:
         conv = crud.get_chat_conversation(db, turn.conversation_id)
         if conv is None:  # deleted while the answer was being written
@@ -1136,7 +1028,7 @@ def _store_answer(
             blocks,
             status=status,
             detail=detail,
-            model=turn.model,
+            model=model or turn.model,
             prompt_tokens=prompt_tokens,
             cached_tokens=cached_tokens,
             cost=cost,
@@ -1155,15 +1047,11 @@ def _spent(
     and None when none did. They exist to show what the cache reads, and a
     search is another model's request that reads nothing from it: counted
     in, they would lower the share read from the cache without saying why. A
-    zero in `prompt_tokens` is stored as None too, as it always was: a turn
-    that cost nothing to send does not exist. A zero in `cached_tokens` is
+    zero total in `prompt_tokens` is stored as None. A zero in `cached_tokens` is
     kept, because it is a real answer: nothing was read from the cache.
 
-    The cost is everything the turn spent, its rounds and its searches, and a
-    sum only when every one of them reported a cost. One whose price nobody
-    said makes the turn's cost unknown, never smaller: the rule the reader set
-    for the analysis's spend (2026-10-02), since a figure about money that is
-    low without saying so is the worse mistake."""
+    Historical USD costs include rounds and searches only when every entry
+    reported a price. Copilot usage carries no USD price, so cost remains None."""
 
     def total(figures: list) -> int | None:
         known = [f for f in figures if f is not None]
@@ -1245,11 +1133,7 @@ MAX_COMPLETIONS_PER_TURN = 7
 # How many web searches one turn may run, for a model offered the web
 # (`tools.web_search`). Six is the reader's figure (2026-10-06). The app counts
 # the searches it runs (`_searches`) and answers a call past them itself, in
-# words (SEARCHES_SPENT), with the tools left as they are. Until brief AM the
-# rounds after the sixth were asked without the web, and a round whose tools
-# changed paid for its whole prefix again, since the tools come first in what
-# a provider caches. At brief AM's measured price ($0.0073 a search, P1) six
-# searches are about $0.044, before the chat's model reads their pages.
+# words (SEARCHES_SPENT), with the tools left as they are.
 WEB_SEARCHES_PER_TURN = 6
 
 # What the model reads for a search past the turn's six, which does not run.
@@ -1267,10 +1151,8 @@ def _searches(
     None for a call that did not run (its arguments do not fit, or the turn's
     searches are spent).
 
-    At most `allowed` run, the first ones asked for, and they run at the same
-    time: each is a request of a few seconds (3.5 to 4.4 in brief AM's P1)
-    that waits for nothing but itself, and the reader would otherwise wait for
-    them one after the other."""
+    At most `allowed` run, the first ones asked for. Independent retrieval
+    requests run concurrently so the reader need not wait for them in sequence."""
     answered: dict[int, tuple[dict, websearch.Search | None]] = {}
     queued: list[tuple[int, str]] = []
     for place, call in enumerate(calls):
@@ -1285,7 +1167,11 @@ def _searches(
             queued.append((place, query))
     if queued:
         with ThreadPoolExecutor(max_workers=len(queued)) as pool:
-            ran = list(pool.map(websearch.search, [query for _, query in queued]))
+            pending = [
+                pool.submit(copy_context().run, websearch.search, query)
+                for _, query in queued
+            ]
+            ran = [result.result() for result in pending]
         for (place, _), found in zip(queued, ran):
             answered[place] = (websearch.outcome(found), found)
     return answered
@@ -1379,31 +1265,9 @@ def _found(found: websearch.Search) -> dict:
     }
 
 
-# Said to the model on the last round that has tools, and on no other. WHERE it
-# is said depends on the model.
-#
-# For most models it is appended to the system prompt rather than pushed into
-# `messages` as a turn of its own: an instruction from the APP belongs where the
-# app's instructions already are, and a system-role message wedged between a
-# tool result and the completion answering it is the one position providers
-# disagree about how to translate.
-#
-# For a model that caches only on request (Anthropic's, see
-# `advisor.caches_on_request`) that place costs the round its cache: the system
-# prompt comes before everything else the round sends again, so changing it
-# makes all of that new. Measured on 2026-10-05 on Opus 5.5, in a paid probe:
-# the same round read nothing from the cache and cost
-# 0.073253 USD with the notice in the system prompt, and read 13,244 tokens and
-# cost 0.0096948 with it at the end. So for those models it goes at the END, as
-# a user message after the round's tool results: not the system-role message
-# the paragraph above avoids, and a shape OpenRouter took to Opus 5.5 that day
-# without a refusal. It speaks of "the reader" in the third person, so it
-# cannot pass for something they said.
-#
-# The offline suite can prove this sentence reaches the model on that round and
-# cannot prove a model heeds it. Nothing here depends on it doing so: the round
-# after this one has no tools at all, so the notice is what turns a hard stop
-# into a warned one, never what enforces it.
+# Said to the model on the last round that has tools, and on no other. The
+# following round has no tools, so this is planning guidance rather than the
+# enforcement mechanism.
 LAST_TOOL_ROUND_NOTICE = (
     "ONE THING ABOUT THIS ROUND. It is your last round with tools. After it "
     "you will be asked once more with none, and whatever you write then is the "
@@ -1422,46 +1286,13 @@ def _asked(
     rounds: int = MAX_COMPLETIONS_PER_TURN,
     warn: bool = True,
 ) -> tuple[str, list[dict]]:
-    """The system prompt and the messages one round is asked with: the turn's
-    own, plus the deadline on the round before the last of `rounds`, where
-    `model` reads it without the round losing its cache (see
-    LAST_TOOL_ROUND_NOTICE). Not when `warn` is false: a turn that answers a
-    card has its own note, which asks for no tools at all, and a deadline
-    saying "propose it NOW" would undo it."""
+    """The prompt and conversation for one bounded Copilot round."""
     system = system_prompt(model)
     if not warn or completion != rounds - 1:
         return system, messages
-    if advisor.caches_on_request(model):
-        return system, [*messages, {"role": "user", "content": LAST_TOOL_ROUND_NOTICE}]
-    return system + "\n\n" + LAST_TOOL_ROUND_NOTICE, messages
+    return system, [*messages, {"role": "user", "content": LAST_TOOL_ROUND_NOTICE}]
 
 
-def _kept_prefixes(messages: list[dict]) -> tuple[int, ...]:
-    """Where a round asks the provider to keep what it read, besides the system
-    prompt and the end of the request, which `advisor.stream_llm` adds itself.
-
-    The picture, the first message: the next turn begins the same way for as
-    long as nothing in the records changes. And the question before the newest
-    one, which closes the part of the conversation the next turn sends again
-    byte for byte. Not the newest question: it goes out with the whole of its
-    screen note (see `_wire`), and the next turn sends it back with its label
-    only, so a marker there would keep a beginning nothing sends twice. That is
-    also why the end-of-request marker alone would carry nothing from one turn
-    to the next.
-
-    The rounds of one turn need none of this: each sends the one before it
-    whole, and the end-of-request marker covers them. Measured on 2026-10-05,
-    in a paid probe: a second turn read the tools, the
-    system prompt and the picture, 11,833 tokens, and a third read 81 more,
-    the earlier question this marker had kept.
-
-    A round that adds more than about twenty blocks (a model asking for ten
-    tools at once) passes the provider's lookback: the next round then reads
-    only up to these markers, and pays for the rest again. Rare enough to say
-    rather than handle."""
-    users = [i for i, m in enumerate(messages) if m["role"] == "user"]
-    before = users[-2] if len(users) > 1 else 0
-    return (0,) if before == 0 else (0, before)
 
 
 # What a turn that broke on a fault of this app's says: an exception nobody
@@ -1552,7 +1383,7 @@ def _work(pending: Pending, conversation_id: int) -> Iterator[schemas.ChatEvent]
         return messages, decided
 
 
-def stream(turn: PreparedTurn) -> Iterator[schemas.ChatEvent]:
+def stream(turn: PreparedTurn) -> Generator[schemas.ChatEvent, None, None]:
     """The answer as events: `start`, the deltas and whatever the model asked
     for along the way, then exactly one `done` — or an `error` in its place,
     saying why. Whatever way it ends, the answer is stored with that ending.
@@ -1590,27 +1421,17 @@ def stream(turn: PreparedTurn) -> Iterator[schemas.ChatEvent]:
     round and not the second is not a boundary.
 
     The loop has a deadline and the model is told about it. The round before the
-    last carries `LAST_TOOL_ROUND_NOTICE`, where that model reads it without the
-    round losing its cache, and the last one is offered no tools at all. The
-    first is so a plan can be finished early; the second is so a plan that was
+    last carries `LAST_TOOL_ROUND_NOTICE` as a final user message, and the last
+    one is offered no tools at all. The first is so a plan can be finished early;
+    the second is so a plan that was
     NOT finished ends in readable words instead of an exception.
-
-    Every round but that last one asks the provider to keep what it read
-    (`_kept_prefixes`), which only Anthropic's models need asking for; the
-    request to any other model is what it was before the cache came in. On a
-    question's turn the round before the last keeps nothing new: it reads up to
-    where the round before it ended (`advisor.stream_llm`'s `kept_to`), since
-    what it would keep only a round with the same tools could read, and the
-    last has none. The turn after a decision is left as it was: its round
-    before the last is its first, which ends on the note about the decision,
-    and whether a later turn reads what it keeps there is unmeasured.
 
     Tools run in a session of this function's own, for the reason `_store_answer`
     opens one: the request's session belongs to the request, and by the time a
     tool runs the response body has already started.
 
     An answer the provider did not FINISH ends as an error too: `stream_llm`
-    raises `advisor.Unfinished` once its words have gone out, so they stay in
+    raises `advisor.AdvisorError` once its words have gone out, so they stay in
     the record and the sentence under them says why. Until brief Z an answer
     cut by a token cap was stored as `done`, and looked finished.
 
@@ -1632,6 +1453,7 @@ def stream(turn: PreparedTurn) -> Iterator[schemas.ChatEvent]:
     )
     blocks: list[dict] = []
     messages = list(turn.messages)
+    resolved_model = turn.model
     ending: tuple[str, str | None] | None = None
     # What the provider said each round read and cost, one entry per round
     # asked, None for a round it said nothing about; and the same for every
@@ -1654,17 +1476,11 @@ def stream(turn: PreparedTurn) -> Iterator[schemas.ChatEvent]:
             messages, decided = yield from _work(turn.pending, turn.conversation_id)
             settled = True
             yield schemas.ChatDecided(card=schemas.ChatCardBlock(**tools.present(decided)))
-        # The same on every round that has tools, whatever happens in the
-        # turn: they come first in what a provider caches, so a round whose
-        # tools changed would pay for everything it sends again.
+        # Keep declarations stable across tool rounds; execution enforces the
+        # remaining search budget without changing what the model may request.
         declared = tools.declarations() + tools.web_search(turn.model)
-        # Worked out once, on the conversation as it stands before any tool is
-        # called: every round of the turn begins with it.
-        kept = _kept_prefixes(messages)
         # How many web searches the turn has run, against WEB_SEARCHES_PER_TURN.
         searched = 0
-        # How many messages the round before this one sent.
-        sent = 0
         for completion in range(1, allowed + 1):
             # The last round is asked with no tools, so it can only write. That
             # is the whole of the old error path, deleted rather than caught.
@@ -1674,44 +1490,32 @@ def stream(turn: PreparedTurn) -> Iterator[schemas.ChatEvent]:
             system, asked = _asked(
                 completion, turn.model, messages, rounds=allowed, warn=turn.decision is None
             )
-            # On a question's turn the round before the last reads up to where
-            # the round before it ended, and keeps nothing new (its question,
-            # on a first round). Not on the turn after a decision (see above).
-            kept_to = (
-                max(sent - 1, 0) if turn.decision is None and completion == allowed - 1 else None
-            )
             rounds.append(None)
-            for kind, piece in advisor.stream_llm(
+            with closing(advisor.stream_llm(
                 system,
                 asked,
                 model=turn.model,
                 tools=None if last else declared,
-                # Nothing asked of the round with no tools: everything a
-                # provider caches begins with the tools, so what that round
-                # wrote could be read only by another round without them, and
-                # none follows it.
-                cache_at=None if last else kept,
-                kept_to=kept_to,
-            ):
-                if kind == "thought":
-                    _say(blocks, "thought", piece)
-                    yield schemas.ChatThought(text=piece)
-                elif kind == "text":
-                    said.append(piece)
-                    _say(blocks, "text", piece)
-                    yield schemas.ChatDelta(text=piece)
-                elif kind == "usage":
-                    # One per round, and all of them count: a turn that called
-                    # a tool asked the model twice and paid for both. Kept out
-                    # of `blocks` and out of the events — this is a fact about
-                    # the turn, not part of the answer, and the reader did not
-                    # ask what their question weighed.
-                    rounds[-1] = piece
-                else:
-                    calls.append(piece)
-            # Counted before `messages` grows, since `asked` is that same list
-            # on a round with no notice.
-            sent = len(asked)
+            )) as response:
+                for kind, piece in response:
+                    if kind == "thought":
+                        _say(blocks, "thought", piece)
+                        yield schemas.ChatThought(text=piece)
+                    elif kind == "text":
+                        said.append(piece)
+                        _say(blocks, "text", piece)
+                        yield schemas.ChatDelta(text=piece)
+                    elif kind == "usage":
+                        # One per round, and all of them count: a turn that called
+                        # a tool asked the model twice and paid for both. Kept out
+                        # of `blocks` and out of the events — this is a fact about
+                        # the turn, not part of the answer, and the reader did not
+                        # ask what their question weighed.
+                        rounds[-1] = piece
+                    elif kind == "model":
+                        resolved_model = piece
+                    else:
+                        calls.append(piece)
             # `last` and not `not calls` alone: a call arriving on a round
             # that was offered no tools is a model contradicting the request,
             # and running it would spend a fetch on an answer no completion is
@@ -1802,6 +1606,8 @@ def stream(turn: PreparedTurn) -> Iterator[schemas.ChatEvent]:
         yield schemas.ChatError(detail=ending[1])
     finally:
         status, detail = ending or ("cut", None)
-        message_id = _store_answer(turn, blocks, status, detail, **_spent(rounds, searches))
+        message_id = _store_answer(
+            turn, blocks, status, detail, model=resolved_model, **_spent(rounds, searches)
+        )
     if ending[0] == "done":
-        yield schemas.ChatDone(model=turn.model, message_id=message_id)
+        yield schemas.ChatDone(model=resolved_model, message_id=message_id)
