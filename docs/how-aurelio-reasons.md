@@ -167,9 +167,11 @@ synthesis. The analyst and its revision can look things up before they answer:
 every axis of the look-through, what the fund catalogue holds on a held fund's
 index and at which costs, what an instrument is and its latest close, what a
 purchase or a sale would do to your exposure, and, on Claude and GPT models, the
-web. None of these reads your profile answers or your goals. Of your Profile
-the analyst reads one field, the country you pay tax in, with the rates you
-declared beside it, so that a tax is quoted rather than invented. The tool
+web. None of these reads your profile answers or your goals. Missing-rate
+notices carry only currency codes and financial shares to the analyst, not
+household row names or counts. Of your Profile the analyst reads one field,
+the country you pay tax in, with the rates you declared beside it, so that a
+tax is quoted rather than invented. The tool
 isolation contract is documented in
 [`analyst_tools.py`](../backend/app/analyst_tools.py); the confidant is offered
 no tool at all. A step looks things up in at most four requests and three web

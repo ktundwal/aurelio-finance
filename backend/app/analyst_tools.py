@@ -12,6 +12,7 @@ reads the profile, the goals or the questionnaire:
 
 - `get_look_through`, the chat's own (`tools._look_through`): the positions
   seen through the funds, every axis, and what could not be looked inside.
+  Missing-rate notices omit household row names and counts.
 - `catalogue_same_index`: what the registry holds on a fund's index
   (`catalogue.same_index`), as counts and costs.
 - `instrument_facts`: a fund's line in the registry, or what Yahoo lists under
@@ -352,7 +353,12 @@ class LookThroughArgs(BaseModel):
 
 
 def _look_through(db: Session, args: LookThroughArgs) -> dict:
-    return tools._look_through(db, tools.LookThroughArgs())
+    result = tools._look_through(db, tools.LookThroughArgs())
+    result["unconverted"] = [
+        {key: item[key] for key in ("currency", "not_a_code", "shares")}
+        for item in result["unconverted"]
+    ]
+    return result
 
 
 REGISTRY: dict[str, tools.Tool] = {
