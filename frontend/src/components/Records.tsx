@@ -2,6 +2,7 @@ import Wealth from "./Wealth";
 import RealAssets from "./RealAssets";
 import Debts from "./Debts";
 import CashFlow from "./CashFlow";
+import TaxHistory from "./TaxHistory";
 import type { Institution } from "../api/institutions";
 import type { Liability } from "../api/liabilities";
 import type { RealAsset } from "../api/realAssets";
@@ -29,6 +30,10 @@ const PAGES = [
   {
     key: "cash",
     label: "Cash flow",
+  },
+  {
+    key: "taxes",
+    label: "Taxes",
   },
 ] as const;
 
@@ -124,6 +129,7 @@ export default function Records({
           }}
         />
       )}
+      {current.key === "taxes" && <TaxHistory />}
     </div>
   );
 }

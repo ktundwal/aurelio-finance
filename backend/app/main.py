@@ -37,6 +37,7 @@ from app.routers import (
     survey,
     transactions,
     transfers,
+    tax_returns,
     watchlist,
 )
 
@@ -104,6 +105,7 @@ app.include_router(cash_anchors.router)
 app.include_router(transfers.router)
 app.include_router(dashboard.router)
 app.include_router(settings.router)
+app.include_router(tax_returns.router)
 app.include_router(survey.router)
 app.include_router(goals.router)
 app.include_router(chain.router)

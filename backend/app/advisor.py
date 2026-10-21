@@ -893,6 +893,28 @@ def build_context(db: Session) -> str:
         ratio = summary["liabilities_total"] / assets_total
         lines.append(f"- Debt-to-asset ratio: {ratio * 100:.1f}%")
 
+    tax_returns = crud.get_tax_returns(db)
+    lines.append("")
+    lines.append("## Tax history (annual returns, newest first)")
+    if not tax_returns:
+        lines.append("- (none recorded)")
+    for row in tax_returns:
+        figures = []
+        for label, value in (
+            ("wages", row.wages),
+            ("AGI", row.adjusted_gross_income),
+            ("taxable income", row.taxable_income),
+            ("total tax", row.total_tax),
+            ("payments", row.total_payments),
+            ("refund", row.refund),
+            ("owed", row.amount_owed),
+        ):
+            if value is not None:
+                figures.append(f"{label} {value:.2f} {row.currency}")
+        detail = ", ".join(figures) or "no return totals recoverable"
+        partial = "" if row.coverage == "filed_return" else f" [{row.coverage}]"
+        lines.append(f"- {row.tax_year} {row.jurisdiction}{partial}: {detail}")
+
     if plans:
         lines.append("")
         lines.append("## PACs (recurring contributions)")

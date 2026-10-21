@@ -1607,6 +1607,69 @@ class WatchlistItemRead(WatchlistItemBase):
     added_at: str
 
 
+# --- Historical tax returns -----------------------------------------------
+
+
+class TaxReturnBase(BaseModel):
+    """Annual figures from one filed return or the surviving source records."""
+
+    tax_year: int = Field(..., ge=1900, le=9999)
+    jurisdiction: str = Field(..., min_length=1, description="Federal, CO, WA, or another jurisdiction")
+    filing_status: str | None = None
+    currency: str
+    coverage: Literal["filed_return", "source_documents", "payment_only"]
+
+    wages: float | None = None
+    taxable_interest: float | None = None
+    tax_exempt_interest: float | None = None
+    ordinary_dividends: float | None = None
+    qualified_dividends: float | None = None
+    capital_gain: float | None = None
+    business_income: float | None = None
+    retirement_distributions: float | None = None
+    taxable_retirement_distributions: float | None = None
+    unemployment_income: float | None = None
+    other_income: float | None = None
+    total_income: float | None = None
+    adjustments: float | None = None
+    hsa_deduction: float | None = None
+    moving_expenses: float | None = None
+    ira_deduction: float | None = None
+    adjusted_gross_income: float | None = None
+    deductions: float | None = None
+    exemptions: float | None = None
+    taxable_income: float | None = None
+    tax_before_credits: float | None = None
+    credits: float | None = None
+    other_taxes: float | None = None
+    total_tax: float | None = None
+    withholding: float | None = None
+    estimated_payments: float | None = None
+    other_payments: float | None = None
+    total_payments: float | None = None
+    refund: float | None = Field(default=None, ge=0)
+    amount_owed: float | None = Field(default=None, ge=0)
+    penalty: float | None = Field(default=None, ge=0)
+
+    source_path: str = Field(..., min_length=1)
+    notes: str | None = None
+
+
+class TaxReturnCreate(TaxReturnBase):
+    """Payload to create or correct one annual tax return."""
+
+    currency: StatedCurrency
+
+
+class TaxReturnRead(TaxReturnBase):
+    """A stored historical tax return."""
+
+    model_config = API_OUT
+
+    id: int
+    created_at: str
+
+
 # --- Cash flow: income sources & expenses ---------------------------------
 
 
@@ -3001,7 +3064,7 @@ class ChatPageRecords(BaseModel):
     """A sub-page of Records with nothing opened inside it."""
 
     kind: Literal["records"]
-    section: Literal["wealth", "real", "debts", "cash"]
+    section: Literal["wealth", "real", "debts", "cash", "taxes"]
 
 
 class ChatPageAccount(BaseModel):

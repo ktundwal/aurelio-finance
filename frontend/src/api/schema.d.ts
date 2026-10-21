@@ -1486,6 +1486,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tax-returns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all tax returns */
+        get: operations["list_items_api_tax_returns_get"];
+        put?: never;
+        /** Create a new tax return */
+        post: operations["create_item_api_tax_returns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tax-returns/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return a single tax return, or 404 if it does not exist */
+        get: operations["get_item_api_tax_returns__item_id__get"];
+        /** Update a tax return */
+        put: operations["update_item_api_tax_returns__item_id__put"];
+        post?: never;
+        /** Delete a tax return */
+        delete: operations["delete_item_api_tax_returns__item_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/transactions": {
         parameters: {
             query?: never;
@@ -2739,7 +2776,7 @@ export interface components {
              * Section
              * @enum {string}
              */
-            section: "wealth" | "real" | "debts" | "cash";
+            section: "wealth" | "real" | "debts" | "cash" | "taxes";
         };
         /**
          * ChatPageSituation
@@ -5236,6 +5273,186 @@ export interface components {
              * @description The two halves summed, and NULL whenever a base with something in it has no rate to apply. A total that quietly omitted half of itself would read as 'my tax' while being an understatement.
              */
             total: number | null;
+        };
+        /**
+         * TaxReturnCreate
+         * @description Payload to create or correct one annual tax return.
+         */
+        TaxReturnCreate: {
+            /** Adjusted Gross Income */
+            adjusted_gross_income?: number | null;
+            /** Adjustments */
+            adjustments?: number | null;
+            /** Amount Owed */
+            amount_owed?: number | null;
+            /** Business Income */
+            business_income?: number | null;
+            /** Capital Gain */
+            capital_gain?: number | null;
+            /**
+             * Coverage
+             * @enum {string}
+             */
+            coverage: "filed_return" | "source_documents" | "payment_only";
+            /** Credits */
+            credits?: number | null;
+            /** Currency */
+            currency: string;
+            /** Deductions */
+            deductions?: number | null;
+            /** Estimated Payments */
+            estimated_payments?: number | null;
+            /** Exemptions */
+            exemptions?: number | null;
+            /** Filing Status */
+            filing_status?: string | null;
+            /** Hsa Deduction */
+            hsa_deduction?: number | null;
+            /** Ira Deduction */
+            ira_deduction?: number | null;
+            /**
+             * Jurisdiction
+             * @description Federal, CO, WA, or another jurisdiction
+             */
+            jurisdiction: string;
+            /** Moving Expenses */
+            moving_expenses?: number | null;
+            /** Notes */
+            notes?: string | null;
+            /** Ordinary Dividends */
+            ordinary_dividends?: number | null;
+            /** Other Income */
+            other_income?: number | null;
+            /** Other Payments */
+            other_payments?: number | null;
+            /** Other Taxes */
+            other_taxes?: number | null;
+            /** Penalty */
+            penalty?: number | null;
+            /** Qualified Dividends */
+            qualified_dividends?: number | null;
+            /** Refund */
+            refund?: number | null;
+            /** Retirement Distributions */
+            retirement_distributions?: number | null;
+            /** Source Path */
+            source_path: string;
+            /** Tax Before Credits */
+            tax_before_credits?: number | null;
+            /** Tax Exempt Interest */
+            tax_exempt_interest?: number | null;
+            /** Tax Year */
+            tax_year: number;
+            /** Taxable Income */
+            taxable_income?: number | null;
+            /** Taxable Interest */
+            taxable_interest?: number | null;
+            /** Taxable Retirement Distributions */
+            taxable_retirement_distributions?: number | null;
+            /** Total Income */
+            total_income?: number | null;
+            /** Total Payments */
+            total_payments?: number | null;
+            /** Total Tax */
+            total_tax?: number | null;
+            /** Unemployment Income */
+            unemployment_income?: number | null;
+            /** Wages */
+            wages?: number | null;
+            /** Withholding */
+            withholding?: number | null;
+        };
+        /**
+         * TaxReturnRead
+         * @description A stored historical tax return.
+         */
+        TaxReturnRead: {
+            /** Adjusted Gross Income */
+            adjusted_gross_income: number | null;
+            /** Adjustments */
+            adjustments: number | null;
+            /** Amount Owed */
+            amount_owed: number | null;
+            /** Business Income */
+            business_income: number | null;
+            /** Capital Gain */
+            capital_gain: number | null;
+            /**
+             * Coverage
+             * @enum {string}
+             */
+            coverage: "filed_return" | "source_documents" | "payment_only";
+            /** Created At */
+            created_at: string;
+            /** Credits */
+            credits: number | null;
+            /** Currency */
+            currency: string;
+            /** Deductions */
+            deductions: number | null;
+            /** Estimated Payments */
+            estimated_payments: number | null;
+            /** Exemptions */
+            exemptions: number | null;
+            /** Filing Status */
+            filing_status: string | null;
+            /** Hsa Deduction */
+            hsa_deduction: number | null;
+            /** Id */
+            id: number;
+            /** Ira Deduction */
+            ira_deduction: number | null;
+            /**
+             * Jurisdiction
+             * @description Federal, CO, WA, or another jurisdiction
+             */
+            jurisdiction: string;
+            /** Moving Expenses */
+            moving_expenses: number | null;
+            /** Notes */
+            notes: string | null;
+            /** Ordinary Dividends */
+            ordinary_dividends: number | null;
+            /** Other Income */
+            other_income: number | null;
+            /** Other Payments */
+            other_payments: number | null;
+            /** Other Taxes */
+            other_taxes: number | null;
+            /** Penalty */
+            penalty: number | null;
+            /** Qualified Dividends */
+            qualified_dividends: number | null;
+            /** Refund */
+            refund: number | null;
+            /** Retirement Distributions */
+            retirement_distributions: number | null;
+            /** Source Path */
+            source_path: string;
+            /** Tax Before Credits */
+            tax_before_credits: number | null;
+            /** Tax Exempt Interest */
+            tax_exempt_interest: number | null;
+            /** Tax Year */
+            tax_year: number;
+            /** Taxable Income */
+            taxable_income: number | null;
+            /** Taxable Interest */
+            taxable_interest: number | null;
+            /** Taxable Retirement Distributions */
+            taxable_retirement_distributions: number | null;
+            /** Total Income */
+            total_income: number | null;
+            /** Total Payments */
+            total_payments: number | null;
+            /** Total Tax */
+            total_tax: number | null;
+            /** Unemployment Income */
+            unemployment_income: number | null;
+            /** Wages */
+            wages: number | null;
+            /** Withholding */
+            withholding: number | null;
         };
         /**
          * TaxSettings
@@ -8733,6 +8950,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SurveyQuestion"][];
+                };
+            };
+        };
+    };
+    list_items_api_tax_returns_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxReturnRead"][];
+                };
+            };
+        };
+    };
+    create_item_api_tax_returns_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaxReturnCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxReturnRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_item_api_tax_returns__item_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxReturnRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_item_api_tax_returns__item_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaxReturnCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxReturnRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_item_api_tax_returns__item_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

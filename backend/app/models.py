@@ -382,6 +382,66 @@ class Expense(CashFlowItemMixin, Base):
     # housing | food | transport | utilities | health | insurance | debt | leisure | education | other
 
 
+
+class TaxReturn(Base):
+    """One annual return for one tax jurisdiction.
+
+    Historical tax figures are annual facts, not recurring cash-flow rows. A
+    federal return and a state return for the same year therefore occupy two
+    rows, while ``coverage`` says whether the row came from the filed return or
+    only from the source documents that survived.
+    """
+
+    __tablename__ = "tax_returns"
+    __table_args__ = (
+        UniqueConstraint("tax_year", "jurisdiction", name="uq_tax_return_year_jurisdiction"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tax_year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    jurisdiction: Mapped[str] = mapped_column(String, nullable=False)
+    filing_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    currency: Mapped[str] = mapped_column(String, nullable=False)
+    # filed_return | source_documents | payment_only
+    coverage: Mapped[str] = mapped_column(String, nullable=False)
+
+    wages: Mapped[float | None] = mapped_column(Float, nullable=True)
+    taxable_interest: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tax_exempt_interest: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ordinary_dividends: Mapped[float | None] = mapped_column(Float, nullable=True)
+    qualified_dividends: Mapped[float | None] = mapped_column(Float, nullable=True)
+    capital_gain: Mapped[float | None] = mapped_column(Float, nullable=True)
+    business_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    retirement_distributions: Mapped[float | None] = mapped_column(Float, nullable=True)
+    taxable_retirement_distributions: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unemployment_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    other_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    adjustments: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hsa_deduction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    moving_expenses: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ira_deduction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    adjusted_gross_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    deductions: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exemptions: Mapped[float | None] = mapped_column(Float, nullable=True)
+    taxable_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tax_before_credits: Mapped[float | None] = mapped_column(Float, nullable=True)
+    credits: Mapped[float | None] = mapped_column(Float, nullable=True)
+    other_taxes: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
+    withholding: Mapped[float | None] = mapped_column(Float, nullable=True)
+    estimated_payments: Mapped[float | None] = mapped_column(Float, nullable=True)
+    other_payments: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_payments: Mapped[float | None] = mapped_column(Float, nullable=True)
+    refund: Mapped[float | None] = mapped_column(Float, nullable=True)
+    amount_owed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    penalty: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, default=_utcnow_iso, nullable=False)
+
+
 class CashAnchor(Base):
     """A manually-entered ACTUAL cash balance for an institution at a date.
 

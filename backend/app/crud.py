@@ -766,6 +766,34 @@ def get_income_source(db: Session, income_id: int) -> models.IncomeSource | None
     return db.get(models.IncomeSource, income_id)
 
 
+# --- Historical tax returns -----------------------------------------------
+
+
+def create_tax_return(db: Session, data: schemas.TaxReturnCreate) -> models.TaxReturn:
+    """Insert an annual return, or replace that jurisdiction's same-year row."""
+    existing = db.scalar(
+        select(models.TaxReturn).where(
+            models.TaxReturn.tax_year == data.tax_year,
+            models.TaxReturn.jurisdiction == data.jurisdiction,
+        )
+    )
+    columns = _columns(data)
+    if existing is not None:
+        return _apply(db, existing, columns)
+    return _create(db, models.TaxReturn(**columns))
+
+
+def get_tax_returns(db: Session) -> list[models.TaxReturn]:
+    stmt = select(models.TaxReturn).order_by(
+        models.TaxReturn.tax_year.desc(), models.TaxReturn.jurisdiction
+    )
+    return list(db.scalars(stmt))
+
+
+def get_tax_return(db: Session, tax_return_id: int) -> models.TaxReturn | None:
+    return db.get(models.TaxReturn, tax_return_id)
+
+
 # --- Expenses -------------------------------------------------------------
 
 
@@ -1032,6 +1060,10 @@ def delete_liability_balance(db: Session, balance_id: int) -> bool:
 
 def delete_income_source(db: Session, income_id: int) -> bool:
     return _delete(db, db.get(models.IncomeSource, income_id))
+
+
+def delete_tax_return(db: Session, tax_return_id: int) -> bool:
+    return _delete(db, db.get(models.TaxReturn, tax_return_id))
 
 
 def delete_expense(db: Session, expense_id: int) -> bool:
@@ -2211,6 +2243,12 @@ def update_real_asset_valuation(
     db: Session, valuation_id: int, data: schemas.RealAssetValuationCreate
 ) -> models.RealAssetValuation | None:
     return _update(db, models.RealAssetValuation, valuation_id, data)
+
+
+def update_tax_return(
+    db: Session, tax_return_id: int, data: schemas.TaxReturnCreate
+) -> models.TaxReturn | None:
+    return _update(db, models.TaxReturn, tax_return_id, data)
 
 
 def update_income_source(
