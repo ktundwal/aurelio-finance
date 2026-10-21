@@ -210,4 +210,5 @@ def test_the_picture_heads_the_questionnaire_as_a_profile_and_its_goals_apart(cl
     with SessionLocal() as db:
         picture = advisor.build_context(db)
     assert "## Goals\n- Emergency fund [emergency_fund]" in picture
-    assert "(none recorded)" not in picture
+    goals = picture.split("## Goals\n", 1)[1].split("\n## ", 1)[0]
+    assert "(none recorded)" not in goals

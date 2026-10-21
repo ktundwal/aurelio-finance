@@ -53,7 +53,7 @@ WORKED_OUT = {"amount", "to_amount", "value"}
 # fails to preserve shows up as a None — and self-consistent, so that resending
 # the same body must leave the row exactly as it was. Each builder returns the
 # URL of the row, the body it was created with, and the row as it came back —
-# read from the create rather than fetched, because two of the fourteen have no
+# read from the create rather than fetched, because some resources have no
 # GET of their own.
 
 
@@ -143,6 +143,53 @@ def expense(client):
     body = _cash_flow_body("nature", "essential", _institution(client))
     made = client.post("/api/expenses", json=body).json()
     return f"/api/expenses/{made['id']}", body, made
+
+
+def tax_return(client):
+    body = {
+        "tax_year": 2006,
+        "jurisdiction": "Federal",
+        "filing_status": "Married filing jointly",
+        "currency": "USD",
+        "coverage": "filed_return",
+        "wages": 100000.0,
+        "taxable_interest": 100.0,
+        "tax_exempt_interest": 200.0,
+        "ordinary_dividends": 300.0,
+        "qualified_dividends": 250.0,
+        "capital_gain": -500.0,
+        "business_income": -2500.0,
+        "retirement_distributions": 50000.0,
+        "taxable_retirement_distributions": 40000.0,
+        "unemployment_income": 1000.0,
+        "other_income": 400.0,
+        "total_income": 138800.0,
+        "adjustments": 5000.0,
+        "hsa_deduction": 2000.0,
+        "moving_expenses": 1000.0,
+        "ira_deduction": 2000.0,
+        "adjusted_gross_income": 133800.0,
+        "deductions": 10000.0,
+        "exemptions": 6000.0,
+        "taxable_income": 117800.0,
+        "tax_before_credits": 20000.0,
+        "credits": 2000.0,
+        "other_taxes": 1000.0,
+        "total_tax": 19000.0,
+        "withholding": 18000.0,
+        "estimated_payments": 2000.0,
+        "other_payments": 500.0,
+        "total_payments": 20500.0,
+        "refund": 1500.0,
+        "amount_owed": 0.0,
+        "penalty": 0.0,
+        "source_path": "2006/filed-return.pdf",
+        "notes": "Amounts transcribed from the surviving return",
+    }
+    response = client.post("/api/tax-returns", json=body)
+    assert response.status_code == 201, response.text
+    made = response.json()
+    return f"/api/tax-returns/{made['id']}", body, made
 
 
 def goal(client):
@@ -265,6 +312,7 @@ EDITABLE = {
     "update_real_asset_valuation": real_asset_valuation,
     "update_income_source": income_source,
     "update_expense": expense,
+    "update_tax_return": tax_return,
     "update_goal": goal,
     "update_cash_anchor": cash_anchor,
     "update_transfer": transfer,
