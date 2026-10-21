@@ -62,7 +62,9 @@ the app saves a copy next to it.
 - **Cash flow and goals**: income, expenses, savings rate, and the return each
   goal needs.
 - **Tax history**: annual federal and state return figures, source coverage,
-  refunds and balances due, kept apart from the recurring cash-flow plan.
+  refunds and balances due in Records > Taxes, kept apart from the recurring
+  cash-flow plan. The advisor receives recorded details, source paths and
+  limitations; missing figures stay unknown rather than becoming zero.
 - **Ask Aurelio**: a chat that answers from your own records, can search the
   web, and proposes every change as a card you confirm.
 - **The analysis**: an analyst and a confidant who knows you argue over your

@@ -896,24 +896,57 @@ def build_context(db: Session) -> str:
     tax_returns = crud.get_tax_returns(db)
     lines.append("")
     lines.append("## Tax history (annual returns, newest first)")
+    lines.append(
+        "Annual tax evidence, separate from recurring cash flow. Unlisted "
+        "figures and absent years are unknown, not zero. Source-document-only "
+        "and payment-only records do not establish a filed return."
+    )
     if not tax_returns:
         lines.append("- (none recorded)")
     for row in tax_returns:
         figures = []
         for label, value in (
             ("wages", row.wages),
+            ("taxable interest", row.taxable_interest),
+            ("tax-exempt interest", row.tax_exempt_interest),
+            ("ordinary dividends", row.ordinary_dividends),
+            ("qualified dividends", row.qualified_dividends),
+            ("capital gain or loss", row.capital_gain),
+            ("business income or loss", row.business_income),
+            ("retirement distributions", row.retirement_distributions),
+            ("taxable retirement distributions", row.taxable_retirement_distributions),
+            ("unemployment compensation", row.unemployment_income),
+            ("other income", row.other_income),
+            ("total income", row.total_income),
+            ("adjustments", row.adjustments),
+            ("HSA deduction", row.hsa_deduction),
+            ("moving expenses", row.moving_expenses),
+            ("IRA deduction", row.ira_deduction),
             ("AGI", row.adjusted_gross_income),
+            ("deductions", row.deductions),
+            ("exemptions", row.exemptions),
             ("taxable income", row.taxable_income),
+            ("tax before credits", row.tax_before_credits),
+            ("credits", row.credits),
+            ("other taxes", row.other_taxes),
             ("total tax", row.total_tax),
+            ("withholding", row.withholding),
+            ("estimated payments", row.estimated_payments),
+            ("other payments and credits", row.other_payments),
             ("payments", row.total_payments),
             ("refund", row.refund),
             ("owed", row.amount_owed),
+            ("penalty or interest", row.penalty),
         ):
             if value is not None:
                 figures.append(f"{label} {value:.2f} {row.currency}")
         detail = ", ".join(figures) or "no return totals recoverable"
-        partial = "" if row.coverage == "filed_return" else f" [{row.coverage}]"
-        lines.append(f"- {row.tax_year} {row.jurisdiction}{partial}: {detail}")
+        lines.append(f"- {row.tax_year} {row.jurisdiction} [{row.coverage}]: {detail}")
+        if row.filing_status:
+            lines.append(f"  filing status: {row.filing_status}")
+        lines.append(f"  Source: {row.source_path}")
+        if row.notes:
+            lines.append(f"  Notes: {row.notes}")
 
     if plans:
         lines.append("")

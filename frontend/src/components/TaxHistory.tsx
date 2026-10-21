@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { getTaxReturns, type TaxReturn } from "../api/taxReturns";
+import { taxOutcome } from "./taxHistoryWords";
 import { apiError, cardClass, money } from "./ui";
 
 const COVERAGE: Record<TaxReturn["coverage"], string> = {
@@ -45,13 +46,6 @@ const DETAIL_FIELDS: Array<[keyof TaxReturn, string]> = [
 function amount(row: TaxReturn, key: keyof TaxReturn): string {
   const value = row[key];
   return typeof value === "number" ? money(row.currency).format(value) : "—";
-}
-
-function outcome(row: TaxReturn): string {
-  if (row.refund != null && row.refund !== 0) return `${amount(row, "refund")} refund`;
-  if (row.amount_owed != null && row.amount_owed !== 0) return `${amount(row, "amount_owed")} owed`;
-  if (row.refund === 0 || row.amount_owed === 0) return "Even";
-  return "—";
 }
 
 export default function TaxHistory() {
@@ -121,7 +115,7 @@ export default function TaxHistory() {
                     <td className="px-4 py-3 text-right tabular-nums">{amount(row, "adjusted_gross_income")}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{amount(row, "taxable_income")}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{amount(row, "total_tax")}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{outcome(row)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{taxOutcome(row)}</td>
                   </tr>
                   {open === row.id && (
                     <tr key={`${row.id}-detail`} className="border-b border-rule bg-tint/40">

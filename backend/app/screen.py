@@ -72,6 +72,7 @@ RECORDS = {
     "real": "Records → Real assets",
     "debts": "Records → Debts",
     "cash": "Records → Cash flow",
+    "taxes": "Records → Taxes",
 }
 
 
@@ -147,6 +148,15 @@ def _records(db: Session, section: str) -> Screen:
             label,
             "The list of debts, each with its latest outstanding balance — "
             "which is what the picture carries.",
+        )
+    if section == "taxes":
+        return _screen(
+            label,
+            "The annual tax records, with filed-return, source-document-only "
+            "and payment-only coverage. The picture's Tax history carries "
+            "the recorded figures, source paths and limitations. These annual "
+            "outcomes are separate from recurring cash flow; missing figures "
+            "and years are unknown, not zero.",
         )
     transfers = len(crud.get_transfers(db))
     return _screen(
