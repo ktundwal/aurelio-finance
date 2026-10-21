@@ -49,6 +49,25 @@ Start without the flag to use your own data.
 Your records live in `backend/data.db`. Before an update changes its format,
 the app saves a copy next to it.
 
+### Maintained Copilot fork (macOS and Linux)
+
+For the maintained `ktundwal/aurelio-finance` fork, use:
+
+```bash
+git clone --branch feature/copilot-sdk-provider https://github.com/ktundwal/aurelio-finance.git
+cd aurelio-finance
+./run-fork.sh              # add --demo for invented data
+```
+
+The launcher requires the prerequisites above plus GitHub Copilot CLI; follow
+[The AI part](#the-ai-part) to sign in. It refuses an uncommitted checkout or
+an `origin` URL other than the HTTPS fork URL above, fetches only
+`feature/copilot-sdk-provider`, switches to that branch if needed, and updates
+it with a fast-forward-only merge. Diverged history stops the launch. It also
+sets `upstream` to `LosaLosSantos/aurelio-finance` for manual maintenance, but
+never fetches or merges upstream while starting. After updating, it delegates
+to `start.sh`, preserving the `--demo` choice.
+
 ## What it does
 
 - **Wealth**: your banks and brokers, their cash, and dated situations of what

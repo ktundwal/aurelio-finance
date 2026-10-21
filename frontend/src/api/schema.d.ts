@@ -5276,7 +5276,14 @@ export interface components {
         };
         /**
          * TaxReturnCreate
-         * @description Payload to create or correct one annual tax return.
+         * @description Payload to create or correct one annual tax record.
+         *
+         *     POST identifies a record by tax_year and jurisdiction. Reposting that pair
+         *     replaces its figures and provenance instead of adding a duplicate; omitted
+         *     optional fields become null. PUT by id preserves omitted fields and clears
+         *     an optional field only when explicitly sent as null. Missing figures are
+         *     unknown, not zero; source-document and payment-only coverage do not establish
+         *     a filed return.
          */
         TaxReturnCreate: {
             /** Adjusted Gross Income */
@@ -5847,7 +5854,7 @@ export interface components {
             more_rows: number;
             /**
              * Not A Code
-             * @description True when it is not a currency code at all, a typo corrected on its row; false when it is a currency no source quotes
+             * @description True when it is not a currency code at all, a typo corrected on its row; false when it has a currency code's shape but no usable rate is available. False does not establish that no source quotes it.
              */
             not_a_code: boolean;
             /**

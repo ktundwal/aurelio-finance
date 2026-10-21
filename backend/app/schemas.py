@@ -260,7 +260,8 @@ class UnconvertedCode(BaseModel):
         ...,
         description=(
             "True when it is not a currency code at all, a typo corrected on its "
-            "row; false when it is a currency no source quotes"
+            "row; false when it has a currency code's shape but no usable rate "
+            "is available. False does not establish that no source quotes it."
         ),
     )
     rows: list[UnconvertedRow] = Field(
@@ -1656,7 +1657,15 @@ class TaxReturnBase(BaseModel):
 
 
 class TaxReturnCreate(TaxReturnBase):
-    """Payload to create or correct one annual tax return."""
+    """Payload to create or correct one annual tax record.
+
+    POST identifies a record by tax_year and jurisdiction. Reposting that pair
+    replaces its figures and provenance instead of adding a duplicate; omitted
+    optional fields become null. PUT by id preserves omitted fields and clears
+    an optional field only when explicitly sent as null. Missing figures are
+    unknown, not zero; source-document and payment-only coverage do not establish
+    a filed return.
+    """
 
     currency: StatedCurrency
 
