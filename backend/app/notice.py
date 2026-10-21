@@ -17,7 +17,8 @@ every amount passed through added up, which matched no figure: measured at
 279acf8, a household's notice said 4,000.00 over 5 while 2,300.00 of its net
 worth and 900.00 of its book were the code, and a monthly income of 100
 reported 100.00 while 1,200.00 had reached the cash. Here each figure is
-computed again with that code's amounts at 0 (`fx.Converter(zero=...)`), and
+computed again with that code's amounts at 0 using `conv.fork(zero=...)`
+(see `fx.Converter.fork` for the shared-rate invariant), and
 the difference is what the code adds, in whatever role it reached the figure:
 a value, a cost, a debt taken off, a flow times its occurrences, a dividend of
 an earlier stretch. A conversion added later is covered without being told

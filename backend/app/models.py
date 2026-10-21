@@ -388,8 +388,8 @@ class TaxReturn(Base):
 
     Historical tax figures are annual facts, not recurring cash-flow rows. A
     federal return and a state return for the same year therefore occupy two
-    rows, while ``coverage`` says whether the row came from the filed return or
-    only from the source documents that survived.
+    rows. The supported evidence categories are defined by
+    ``schemas.TaxReturnBase.coverage``.
     """
 
     __tablename__ = "tax_returns"

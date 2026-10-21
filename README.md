@@ -61,10 +61,13 @@ the app saves a copy next to it.
   that finance them.
 - **Cash flow and goals**: income, expenses, savings rate, and the return each
   goal needs.
-- **Tax history**: annual federal and state return figures, source coverage,
-  refunds and balances due in Records > Taxes, kept apart from the recurring
-  cash-flow plan. The advisor receives recorded details, source paths and
-  limitations; missing figures stay unknown rather than becoming zero.
+- **Tax history**: annual federal and state figures in Records > Taxes, from
+  filed returns, surviving source documents or payment records, kept apart
+  from the recurring cash-flow plan. Click a year to expand its recorded
+  categories, source paths and limitations; the advisor receives these too.
+  Missing years stay absent and missing figures stay unknown, not zero.
+  The tax-record API is described in the running app's
+  [API reference](http://localhost:8000/docs#/tax_returns).
 - **Ask Aurelio**: a chat that answers from your own records, can search the
   web, and proposes every change as a card you confirm.
 - **The analysis**: an analyst and a confidant who knows you argue over your

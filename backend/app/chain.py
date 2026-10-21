@@ -25,11 +25,10 @@ context did not hold it could not check: in the brief's P0 it called a fund's
 stated a coin's history from memory. The analyst and its revision now have
 read-only tools (`analyst_tools`): the look-through, what the catalogue holds
 on a fund's index, what an instrument is, what a change would weigh, and for
-Claude and GPT models the web. None of them reads the profile, the goals or the
-questionnaire, and a test plants markers there to hold that line; the
-confidant and the synthesis have none. A step that may look things up asks in
-rounds (`_looked_up`): at most ROUNDS_PER_STEP requests and SEARCHES_PER_STEP
-searches.
+Claude and GPT models the web. The tool isolation contract is documented in
+`analyst_tools`; the confidant and the synthesis have no tools. A step that
+may look things up asks in rounds (`_looked_up`): at most ROUNDS_PER_STEP
+requests and SEARCHES_PER_STEP searches.
 
 THE DEPTH IS VARIABLE, and that is what makes this an orchestration rather than
 a pipeline. Steps 1, 2 and 4 always run: the asymmetry is the chain, and the

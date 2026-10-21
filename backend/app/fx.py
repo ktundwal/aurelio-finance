@@ -594,7 +594,11 @@ class Converter:
     def fork(self, zero: str | None = None) -> Converter:
         """A converter at the same day and base, sharing what is loaded, with
         a record of its own: one account's figures read apart from the
-        others', or the second pass with `zero`."""
+        others', or the second pass with `zero`.
+
+        Share unavailable Yahoo rates too: retrying one during share measurement
+        could change the rates instead of only removing the unconverted code.
+        """
         other = Converter(
             self._db, on=self._on, _load=self._load, base=self._base, zero=zero,
             _load_yahoo=self._load_yahoo,

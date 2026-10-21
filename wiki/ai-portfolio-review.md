@@ -33,8 +33,8 @@ built on what they are not shown.
 The analyst and its revision can look things up before they answer: the look-through of your
 funds, what the fund catalogue holds on a fund's index and at which costs, what an instrument
 is and its latest close, what a purchase or a sale would change, and, on Claude and GPT models,
-the web. None of these reads your profile answers or your goals, and a test in the code plants
-markers there to check that none of them reaches the analyst.
+the web. See the [tool isolation contract](https://github.com/LosaLosSantos/aurelio-finance/blob/main/backend/app/analyst_tools.py)
+for what these tools may and may not read.
 
 The prompts ask for friction on purpose: two polite models converge into agreement that
 carries no information.
