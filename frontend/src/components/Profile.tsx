@@ -63,37 +63,34 @@ export default function Profile() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
+    async function load() {
+      try {
+        const [asked, existing, taxes, currentBase] = await Promise.all([
+          getSurveyQuestions(),
+          getSurvey(),
+          getTaxSettings(),
+          getBaseCurrency(),
+        ]);
+        setQuestions(asked);
+        setBase(currentBase);
+        setPickedBase(currentBase.base_currency);
+        setTax(taxes);
+        setTaxCountry(taxes.country ?? "");
+        setCgRate(taxes.capital_gains_rate?.toString() ?? "");
+        setDivRate(taxes.dividend_withholding_rate?.toString() ?? "");
+        const map: Record<string, string> = {};
+        for (const a of existing) if (a.answer != null) map[a.question_key] = a.answer;
+        setAnswers(map);
+        setCarried(othersOf(asked, existing));
+        setDropped([]);
+      } catch (err) {
+        setError(apiError(err, "Could not reach the backend. Is it running on :8000?"));
+      } finally {
+        setLoading(false);
+      }
+    }
     void load();
   }, []);
-
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      const [asked, existing, taxes, currentBase] = await Promise.all([
-        getSurveyQuestions(),
-        getSurvey(),
-        getTaxSettings(),
-        getBaseCurrency(),
-      ]);
-      setQuestions(asked);
-      setBase(currentBase);
-      setPickedBase(currentBase.base_currency);
-      setTax(taxes);
-      setTaxCountry(taxes.country ?? "");
-      setCgRate(taxes.capital_gains_rate?.toString() ?? "");
-      setDivRate(taxes.dividend_withholding_rate?.toString() ?? "");
-      const map: Record<string, string> = {};
-      for (const a of existing) if (a.answer != null) map[a.question_key] = a.answer;
-      setAnswers(map);
-      setCarried(othersOf(asked, existing));
-      setDropped([]);
-    } catch (err) {
-      setError(apiError(err, "Could not reach the backend. Is it running on :8000?"));
-    } finally {
-      setLoading(false);
-    }
-  }
 
   function setAnswer(key: string, value: string) {
     setAnswers((a) => ({ ...a, [key]: value }));
